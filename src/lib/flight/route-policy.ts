@@ -1,7 +1,7 @@
 import type { ConfirmedFlight } from "@/lib/domain/types";
 
 const DAY_MILLISECONDS = 86_400_000;
-const COMPLETED_STATUSES = new Set(["Arrived"]);
+const COMPLETED_STATUSES = new Set(["Arrived", "Departed"]);
 
 export interface FlightRoutePolicy {
   ageDays: number;

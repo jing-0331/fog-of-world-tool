@@ -55,6 +55,61 @@ function noTrack(message: string): ProviderError {
   });
 }
 
+function matchingTrackSlice(
+  points: GeoPoint[],
+  request: TrackRequest,
+): GeoPoint[] | null {
+  const targetTime = request.timestampSeconds * 1_000;
+  let best:
+    | {
+        startIndex: number;
+        endIndex: number;
+        containsTargetTime: boolean;
+        endpointDistance: number;
+      }
+    | undefined;
+
+  for (let startIndex = 0; startIndex < points.length - 1; startIndex += 1) {
+    const originDistance = distanceMeters(points[startIndex], request.origin);
+    if (originDistance > MAX_ENDPOINT_DISTANCE_METERS) continue;
+
+    for (
+      let endIndex = startIndex + 1;
+      endIndex < points.length;
+      endIndex += 1
+    ) {
+      const destinationDistance = distanceMeters(
+        points[endIndex],
+        request.destination,
+      );
+      if (destinationDistance > MAX_ENDPOINT_DISTANCE_METERS) continue;
+
+      const startTime = Date.parse(points[startIndex].time!);
+      const endTime = Date.parse(points[endIndex].time!);
+      const containsTargetTime =
+        startTime <= targetTime && targetTime <= endTime;
+      const endpointDistance = originDistance + destinationDistance;
+      if (
+        best === undefined ||
+        (containsTargetTime && !best.containsTargetTime) ||
+        (containsTargetTime === best.containsTargetTime &&
+          endpointDistance < best.endpointDistance)
+      ) {
+        best = {
+          startIndex,
+          endIndex,
+          containsTargetTime,
+          endpointDistance,
+        };
+      }
+    }
+  }
+
+  return best
+    ? points.slice(best.startIndex, best.endIndex + 1)
+    : null;
+}
+
 export function createOpenSkyClient({
   clientId,
   clientSecret,
@@ -109,16 +164,12 @@ export function createOpenSkyClient({
       if (points.length < 2) {
         throw noTrack("OpenSky 航跡缺少足夠的定位點。");
       }
-      if (
-        distanceMeters(points[0], request.origin) >
-          MAX_ENDPOINT_DISTANCE_METERS ||
-        distanceMeters(points.at(-1)!, request.destination) >
-          MAX_ENDPOINT_DISTANCE_METERS
-      ) {
+      const matchingPoints = matchingTrackSlice(points, request);
+      if (matchingPoints === null) {
         throw noTrack("OpenSky 航跡端點與已確認機場不符。");
       }
 
-      return densifyPoints(points, { maxDistanceMeters: 2_000 });
+      return densifyPoints(matchingPoints, { maxDistanceMeters: 2_000 });
     },
   };
 }
