@@ -263,3 +263,155 @@ select {
     justify-content: center;
   }
 }
+
+.workflow-shell {
+  width: min(960px, calc(100% - 2rem));
+  min-height: calc(100vh - 10rem);
+  margin-inline: auto;
+  padding: 4rem 0 6rem;
+}
+
+.workflow-heading {
+  margin-bottom: 2rem;
+}
+
+.workflow-heading h1 {
+  margin: 0;
+  font-size: clamp(2.25rem, 6vw, 4.5rem);
+  letter-spacing: -0.055em;
+}
+
+.workflow-heading > p:last-child {
+  color: var(--muted);
+}
+
+.workflow-panel {
+  margin-top: 1rem;
+  padding: clamp(1rem, 3vw, 2rem);
+  border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  background: var(--surface-strong);
+}
+
+.search-form,
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.search-form label,
+.form-grid label {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 750;
+}
+
+.search-form input,
+.form-grid input {
+  min-height: 3rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: white;
+  color: var(--foreground);
+}
+
+.primary-button {
+  min-height: 3rem;
+  padding: 0.65rem 1rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: var(--accent);
+  color: #28100a;
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.search-form .primary-button {
+  align-self: end;
+}
+
+.candidate-list,
+.confirmed-list {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.flight-card {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 1rem;
+  align-items: center;
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--surface);
+}
+
+.flight-card header,
+.flight-card > p,
+.flight-card > button,
+.flight-card .button-row {
+  grid-column: 1 / -1;
+}
+
+.flight-card header,
+.button-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flight-card p {
+  margin: 0;
+}
+
+.flight-card time {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.status-error,
+[role="alert"] {
+  color: #a12d2d;
+}
+
+.export-button {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  padding: 1rem;
+  place-items: center;
+  background: rgb(19 46 42 / 55%);
+}
+
+.dialog-card {
+  width: min(32rem, 100%);
+  padding: 2rem;
+  border-radius: 1.25rem;
+  background: white;
+  box-shadow: 0 2rem 5rem rgb(0 0 0 / 25%);
+}
+
+@media (max-width: 700px) {
+  .search-form,
+  .form-grid,
+  .flight-card {
+    grid-template-columns: 1fr;
+  }
+
+  .flight-card > * {
+    grid-column: 1;
+  }
+}
