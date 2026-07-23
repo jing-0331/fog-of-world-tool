@@ -43,6 +43,7 @@ describe("repairRoute", () => {
 
     const result = await repairRoute(request, {
       openRouteService,
+      tdx: vi.fn(),
       transitous: vi.fn(),
     });
 
@@ -68,18 +69,63 @@ describe("repairRoute", () => {
     }
   });
 
-  it("marks Transitous output approximate with the actual query date", async () => {
+  it("uses TDX for a public-transport route wholly inside Taiwan", async () => {
+    const tdx = vi.fn().mockResolvedValue({
+      points: [
+        { lat: 25.0478, lon: 121.5319 },
+        { lat: 22.6273, lon: 120.3014 },
+      ],
+      referenceDate: "2026-07-24",
+    });
+    const transitous = vi.fn().mockResolvedValue({
+      points: [request.startPoint, request.endPoint],
+      referenceDate: "2026-07-24",
+    });
+
+    const result = await repairRoute(
+      {
+        ...request,
+        mode: "bus",
+        startPoint: { lat: 25.0478, lon: 121.5319 },
+        endPoint: { lat: 22.6273, lon: 120.3014 },
+      },
+      {
+        openRouteService: vi.fn(),
+        tdx,
+        transitous,
+      },
+    );
+
+    expect(tdx).toHaveBeenCalledOnce();
+    expect(transitous).not.toHaveBeenCalled();
+    expect(result.provenance).toMatchObject({
+      kind: "transit-route",
+      source: "tdx",
+      referenceDate: "2026-07-24",
+      approximate: true,
+    });
+    expect(result.attempts).toEqual([
+      expect.objectContaining({ source: "tdx", status: "success" }),
+    ]);
+  });
+
+  it("keeps overseas public transport on Transitous", async () => {
+    const transitous = vi.fn().mockResolvedValue({
+      points: [request.startPoint, request.endPoint],
+      referenceDate: "2026-07-23",
+    });
+    const tdx = vi.fn();
     const result = await repairRoute(
       { ...request, mode: "bus" },
       {
         openRouteService: vi.fn(),
-        transitous: vi.fn().mockResolvedValue({
-          points: [request.startPoint, request.endPoint],
-          referenceDate: "2026-07-23",
-        }),
+        tdx,
+        transitous,
       },
     );
 
+    expect(transitous).toHaveBeenCalledOnce();
+    expect(tdx).not.toHaveBeenCalled();
     expect(result.provenance).toMatchObject({
       kind: "transit-route",
       source: "transitous",

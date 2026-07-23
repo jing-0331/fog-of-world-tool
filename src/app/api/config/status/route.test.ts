@@ -10,6 +10,8 @@ describe("GET /api/config/status", () => {
       OPENSKY_CLIENT_ID: "client-id",
       OPENSKY_CLIENT_SECRET: "secret-opensky",
       FLIGHTPLANDB_API_KEY: "",
+      TDX_CLIENT_ID: "tdx-client-id",
+      TDX_CLIENT_SECRET: "secret-tdx",
       TRANSITOUS_CONTACT_URL: "https://github.com/example/fog-tool",
     });
     const serialized = JSON.stringify(status);
@@ -18,10 +20,13 @@ describe("GET /api/config/status", () => {
     expect(status.openrouteservice.configured).toBe(true);
     expect(status.opensky.configured).toBe(true);
     expect(status.flightPlanDatabase.configured).toBe(false);
+    expect(status.tdx.configured).toBe(true);
     expect(status.transitous.configured).toBe(true);
     expect(serialized).not.toContain("secret-aerodatabox");
     expect(serialized).not.toContain("secret-ors");
     expect(serialized).not.toContain("secret-opensky");
+    expect(serialized).not.toContain("tdx-client-id");
+    expect(serialized).not.toContain("secret-tdx");
   });
 
   it("keeps the app available with setup messages when keys are absent", () => {
@@ -32,7 +37,15 @@ describe("GET /api/config/status", () => {
       message: "設定 AERODATABOX_RAPIDAPI_KEY 以啟用航班搜尋。",
     });
     expect(status.opensky.configured).toBe(false);
+    expect(status.tdx.configured).toBe(false);
     expect(status.transitous.configured).toBe(false);
+  });
+
+  it.each([
+    { TDX_CLIENT_ID: "client-id" },
+    { TDX_CLIENT_SECRET: "client-secret" },
+  ])("requires both TDX credentials", (environment) => {
+    expect(getConfigStatus(environment).tdx.configured).toBe(false);
   });
 
   it("rejects the placeholder Transitous contact URL", () => {

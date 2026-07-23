@@ -234,7 +234,11 @@ export async function processTimeline(
       }
 
       const providerError = asProviderError(error);
-      const policy = routePolicy(leg.mode);
+      const policy = routePolicy(
+        leg.mode,
+        gap.startPoint,
+        gap.endPoint,
+      );
       if (policy) {
         report.providerAttempts.push({
           segmentId: gap.id,

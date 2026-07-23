@@ -283,7 +283,7 @@ function cacheKeyInput(
   mode: TransportMode,
   referenceDate?: string | null,
 ) {
-  const policy = routePolicy(mode);
+  const policy = routePolicy(mode, gap.startPoint, gap.endPoint);
   if (!policy) {
     return null;
   }
@@ -294,7 +294,7 @@ function cacheKeyInput(
     provider: policy.provider,
     algorithmVersion: ROUTE_ALGORITHM_VERSION,
     referenceDate:
-      policy.provider === "transitous"
+      policy.provider === "tdx" || policy.provider === "transitous"
         ? (referenceDate ?? new Date().toISOString().slice(0, 10))
         : null,
   };

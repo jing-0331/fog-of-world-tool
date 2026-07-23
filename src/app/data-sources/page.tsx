@@ -28,6 +28,12 @@ const sources = [
     description: "OpenRouteService 使用的開放地圖資料；須遵守 ODbL 與署名要求。",
   },
   {
+    name: "TDX",
+    href: "https://tdx.transportdata.tw/api-service/swagger/maas/4513f9d6-caae-4cf7-a50c-e7887bec804e",
+    description:
+      "交通部運輸資料流通服務；用於台灣境內的大眾運輸路線規劃，需以會員 API 金鑰存取。免付費方案每分鐘最多 5 次請求，本工具會將 MaaS 請求與自動重試排入共用佇列。",
+  },
+  {
     name: "Transitous",
     href: "https://transitous.org/api/",
     description:
@@ -95,8 +101,8 @@ export default function DataSourcesPage() {
             ))}
           </ul>
           <p className="mt-4 text-sm text-slate-600">
-            OpenRouteService 回傳結果依 CC BY 4.0 使用。Transitous 請求會帶上應用程式版本與
-            聯絡網址；資料來源依各 feed 的授權與署名要求為準。
+            OpenRouteService 回傳結果依 CC BY 4.0 使用。TDX 資料依其資料授權條款使用；
+            Transitous 請求會帶上應用程式版本與聯絡網址，資料來源依各 feed 的授權與署名要求為準。
           </p>
         </section>
       </article>

@@ -14,6 +14,8 @@ const serverEnvSchema = z.object({
   OPENSKY_CLIENT_ID: optionalSecret,
   OPENSKY_CLIENT_SECRET: optionalSecret,
   FLIGHTPLANDB_API_KEY: optionalSecret,
+  TDX_CLIENT_ID: optionalSecret,
+  TDX_CLIENT_SECRET: optionalSecret,
   TRANSITOUS_CONTACT_URL: optionalSecret,
 });
 

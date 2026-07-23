@@ -37,6 +37,14 @@ describe("data sources page", () => {
       "href",
       "https://transitous.org/api/",
     );
+    expect(screen.getByRole("link", { name: "TDX" })).toHaveAttribute(
+      "href",
+      "https://tdx.transportdata.tw/api-service/swagger/maas/4513f9d6-caae-4cf7-a50c-e7887bec804e",
+    );
+    expect(screen.getByText(/台灣境內的大眾運輸路線/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/免付費方案每分鐘最多 5 次請求/),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Google Timeline 匯出說明" }),
     ).toHaveAttribute("href", "https://support.google.com/maps/answer/6258979");

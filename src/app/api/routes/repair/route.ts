@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { createOpenRouteServiceClient } from "@/lib/providers/openrouteservice/client";
+import { createTdxClient } from "@/lib/providers/tdx/client";
 import { createTransitousClient } from "@/lib/providers/transitous/client";
 import {
   repairRoute,
@@ -90,6 +91,12 @@ async function repairConfiguredRoute(
     async transitous(input) {
       return createTransitousClient({
         contactUrl: env.TRANSITOUS_CONTACT_URL,
+      }).route(input);
+    },
+    async tdx(input) {
+      return createTdxClient({
+        clientId: env.TDX_CLIENT_ID,
+        clientSecret: env.TDX_CLIENT_SECRET,
       }).route(input);
     },
   });

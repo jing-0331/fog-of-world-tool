@@ -30,6 +30,7 @@ describe("routeSourceLabel", () => {
     );
     expect(routeSourceLabel("google-timeline")).toBe("Google 時間軸");
     expect(routeSourceLabel("local-calculation")).toBe("本機計算");
+    expect(routeSourceLabel("tdx" as never)).toBe("TDX");
   });
 });
 

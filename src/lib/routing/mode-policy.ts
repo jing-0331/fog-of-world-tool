@@ -1,4 +1,5 @@
-import type { TransportMode } from "@/lib/domain/types";
+import type { GeoPoint, TransportMode } from "@/lib/domain/types";
+import { isTaiwanPoint } from "@/lib/geo/taiwan";
 import type { OpenRouteServiceProfile } from "@/lib/providers/openrouteservice/client";
 
 export type RoutePolicy =
@@ -7,7 +8,7 @@ export type RoutePolicy =
       profile: OpenRouteServiceProfile;
     }
   | {
-      provider: "transitous";
+      provider: "tdx" | "transitous";
       transitMode: "RAIL" | "SUBWAY" | "BUS" | "TRAM" | "FERRY";
     };
 
@@ -24,8 +25,22 @@ const POLICIES = {
   ferry: { provider: "transitous", transitMode: "FERRY" },
 } as const satisfies Partial<Record<TransportMode, RoutePolicy>>;
 
-export function routePolicy(mode: TransportMode): RoutePolicy | null {
-  return mode in POLICIES
+export function routePolicy(
+  mode: TransportMode,
+  startPoint?: GeoPoint,
+  endPoint?: GeoPoint,
+): RoutePolicy | null {
+  const policy = mode in POLICIES
     ? POLICIES[mode as keyof typeof POLICIES]
     : null;
+  if (
+    policy?.provider === "transitous" &&
+    startPoint !== undefined &&
+    endPoint !== undefined &&
+    isTaiwanPoint(startPoint) &&
+    isTaiwanPoint(endPoint)
+  ) {
+    return { ...policy, provider: "tdx" };
+  }
+  return policy;
 }
