@@ -107,4 +107,63 @@ describe("OpenSky client", () => {
       }),
     ).rejects.toMatchObject({ code: "no_data" });
   });
+
+  it("extracts the matching direction from a combined round-trip track", async () => {
+    const origin = { lat: 26.1958, lon: 127.6459 };
+    const destination = { lat: 22.5755, lon: 120.3508 };
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: "token", expires_in: 1800 }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            icao24: "89902c",
+            startTime: 1_784_599_575,
+            endTime: 1_784_615_654,
+            path: [
+              [1_784_599_575, destination.lat, destination.lon, 0, 0, true],
+              [1_784_603_000, 24.5, 124, 10_000, 45, false],
+              [1_784_607_000, origin.lat, origin.lon, 0, 90, true],
+              [1_784_611_000, 24.5, 124, 10_000, 225, false],
+              [1_784_615_654, destination.lat, destination.lon, 0, 270, true],
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+    const client = createOpenSkyClient({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      fetchFn,
+    });
+
+    const points = await client.getTrack({
+      icao24: "89902C",
+      timestampSeconds: 1_784_611_000,
+      origin,
+      destination,
+    });
+
+    expect(points[0]).toMatchObject({
+      lat: origin.lat,
+      lon: origin.lon,
+      time: new Date(1_784_607_000_000).toISOString(),
+    });
+    expect(points.at(-1)).toMatchObject({
+      lat: destination.lat,
+      lon: destination.lon,
+      time: new Date(1_784_615_654_000).toISOString(),
+    });
+    expect(
+      points.some(
+        (point) =>
+          point.time === new Date(1_784_599_575_000).toISOString(),
+      ),
+    ).toBe(false);
+  });
 });

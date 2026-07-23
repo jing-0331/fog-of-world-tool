@@ -43,6 +43,20 @@ describe("flightRoutePolicy", () => {
     expect(flightRoutePolicy(incomplete, now).tryOpenSky).toBe(false);
     expect(flightRoutePolicy(noAircraft, now).tryOpenSky).toBe(false);
   });
+
+  it("tries OpenSky for a departed flight after its scheduled arrival", () => {
+    const flight = flightAtAge(3);
+    flight.flightNumber = "IT289";
+    flight.status = "Departed";
+    delete flight.actualDeparture;
+    delete flight.actualArrival;
+
+    expect(flightRoutePolicy(flight, now)).toMatchObject({
+      ageDays: 3,
+      completed: true,
+      tryOpenSky: true,
+    });
+  });
 });
 
 describe("selectRepresentativeFlight", () => {
