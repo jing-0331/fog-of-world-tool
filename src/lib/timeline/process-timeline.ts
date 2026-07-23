@@ -161,7 +161,12 @@ export async function processTimeline(
         continue;
       }
 
-      const cached = await dependencies.getCachedRoute(gap, effectiveMode);
+      const savedRoute =
+        correction?.action === "reroute"
+          ? correction.normalizedRoute
+          : undefined;
+      const cached =
+        savedRoute ?? (await dependencies.getCachedRoute(gap, effectiveMode));
       if (options.signal?.aborted) {
         return canceledResult(report);
       }
@@ -181,7 +186,7 @@ export async function processTimeline(
       if (options.signal?.aborted) {
         return canceledResult(report);
       }
-      if (cached === null) {
+      if (!savedRoute && cached === null) {
         await dependencies.putCachedRoute(gap, effectiveMode, {
           points: route.points,
           provenance: route.provenance,

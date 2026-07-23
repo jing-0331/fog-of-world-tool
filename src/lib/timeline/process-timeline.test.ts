@@ -68,6 +68,47 @@ describe("processTimeline", () => {
     expect(result.segments[0].provenance.source).toBe("openrouteservice");
   });
 
+  it("applies a saved normalized user correction before cache or providers", async () => {
+    const correctedGap = gap("corrected", 0, 10, 0, 0.1);
+    const correctedRoute = repaired(correctedGap);
+    const dependencies = deps({
+      getCorrection: vi.fn().mockResolvedValue({
+        gapId: "semantic-segments-v1|corrected",
+        action: "reroute",
+        originalMode: "walking",
+        correctedMode: "bus",
+        normalizedRoute: {
+          points: correctedRoute.points,
+          provenance: {
+            ...correctedRoute.provenance,
+            kind: "transit-route",
+            source: "transitous",
+            referenceDate: "2026-07-23",
+          },
+        },
+        updatedAt: "2026-07-23T00:00:00Z",
+      }),
+    });
+
+    const result = await processTimeline(
+      [leg({ gaps: [correctedGap] })],
+      dependencies,
+    );
+
+    expect(dependencies.getCachedRoute).not.toHaveBeenCalled();
+    expect(dependencies.repair).not.toHaveBeenCalled();
+    expect(result.report.userCorrectedSuccess).toHaveLength(1);
+    expect(result.segments[0]).toMatchObject({
+      mode: "bus",
+      provenance: {
+        source: "transitous",
+        originalMode: "walking",
+        correctedMode: "bus",
+        userOverride: true,
+      },
+    });
+  });
+
   it("keeps provider provenance and stores successful repairs", async () => {
     const routeGap = gap("success", 0, 10, 0, 0.1);
     const dependencies = deps();
