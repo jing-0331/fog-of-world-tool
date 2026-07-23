@@ -20,6 +20,7 @@ const ROUTE_SOURCE_LABELS = {
   aerodatabox: "AeroDataBox",
   "flight-plan-database": "Flight Plan Database",
   openrouteservice: "OpenRouteService",
+  tdx: "TDX",
   transitous: "Transitous",
   "local-calculation": "本機計算",
   user: "使用者修正",

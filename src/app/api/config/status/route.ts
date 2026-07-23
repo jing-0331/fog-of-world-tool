@@ -16,6 +16,7 @@ export interface ConfigStatus {
   openrouteservice: CapabilityStatus;
   opensky: CapabilityStatus;
   flightPlanDatabase: CapabilityStatus;
+  tdx: CapabilityStatus;
   transitous: CapabilityStatus;
 }
 
@@ -54,6 +55,12 @@ export function getConfigStatus(environment: EnvironmentInput): ConfigStatus {
       env.FLIGHTPLANDB_API_KEY !== undefined,
       "模擬航路查詢已啟用。",
       "設定 FLIGHTPLANDB_API_KEY 以啟用完整模擬航路查詢。",
+    ),
+    tdx: capability(
+      env.TDX_CLIENT_ID !== undefined &&
+        env.TDX_CLIENT_SECRET !== undefined,
+      "台灣大眾運輸路線查詢已啟用。",
+      "設定 TDX_CLIENT_ID 與 TDX_CLIENT_SECRET 以啟用台灣大眾運輸路線查詢。",
     ),
     transitous: capability(
       transitousConfigured,

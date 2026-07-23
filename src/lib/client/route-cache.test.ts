@@ -52,6 +52,17 @@ describe("route cache keys", () => {
       buildRouteCacheKey(base),
     );
   });
+
+  it("date-buckets TDX routes independently from Transitous", () => {
+    const key = buildRouteCacheKey({
+      ...base,
+      provider: "tdx",
+    });
+
+    expect(key).toContain("|tdx|");
+    expect(key).toContain("2026-07");
+    expect(key).not.toContain("static");
+  });
 });
 
 describe("route cache stores", () => {

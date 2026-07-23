@@ -13,6 +13,7 @@ export type RouteSource =
   | "aerodatabox"
   | "flight-plan-database"
   | "openrouteservice"
+  | "tdx"
   | "transitous"
   | "local-calculation"
   | "user";

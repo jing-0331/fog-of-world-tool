@@ -13,7 +13,7 @@ export interface RouteCacheKeyInput {
   startPoint: GeoPoint;
   endPoint: GeoPoint;
   mode: TransportMode;
-  provider: Extract<RouteSource, "openrouteservice" | "transitous">;
+  provider: Extract<RouteSource, "openrouteservice" | "tdx" | "transitous">;
   algorithmVersion: string;
   referenceDate: string | null;
 }
@@ -52,7 +52,7 @@ interface RouteCacheDatabase extends DBSchema {
 
 export function buildRouteCacheKey(input: RouteCacheKeyInput): string {
   const monthBucket =
-    input.provider === "transitous"
+    input.provider === "tdx" || input.provider === "transitous"
       ? (input.referenceDate?.slice(0, 7) ?? "current")
       : "static";
   return [

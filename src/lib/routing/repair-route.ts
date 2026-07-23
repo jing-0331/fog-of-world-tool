@@ -35,6 +35,15 @@ interface RepairRouteDependencies {
     endPoint: GeoPoint;
     signal?: AbortSignal;
   }) => Promise<{ points: GeoPoint[]; referenceDate: string }>;
+  tdx: (request: {
+    mode: Extract<
+      TransportMode,
+      "train" | "subway" | "bus" | "tram" | "ferry"
+    >;
+    startPoint: GeoPoint;
+    endPoint: GeoPoint;
+    signal?: AbortSignal;
+  }) => Promise<{ points: GeoPoint[]; referenceDate: string }>;
 }
 
 export interface RepairRouteResult {
@@ -47,7 +56,11 @@ export async function repairRoute(
   request: RepairRouteRequest,
   dependencies: RepairRouteDependencies,
 ): Promise<RepairRouteResult> {
-  const policy = routePolicy(request.mode);
+  const policy = routePolicy(
+    request.mode,
+    request.startPoint,
+    request.endPoint,
+  );
   if (policy === null) {
     throw new ProviderError({
       code: "no_data",
@@ -75,7 +88,9 @@ export async function repairRoute(
       originalMode: request.mode,
     };
   } else {
-    const transitResult = await dependencies.transitous({
+    const transitProvider =
+      policy.provider === "tdx" ? dependencies.tdx : dependencies.transitous;
+    const transitResult = await transitProvider({
       mode: request.mode as Extract<
         TransportMode,
         "train" | "subway" | "bus" | "tram" | "ferry"
@@ -87,11 +102,13 @@ export async function repairRoute(
     rawPoints = transitResult.points;
     provenance = {
       kind: "transit-route",
-      source: "transitous",
+      source: policy.provider,
       referenceDate: transitResult.referenceDate,
       approximate: true,
       explanation:
-        "以 Transitous 目前班表近似補齊歷史大眾運輸路徑；參考日期不是原始行程日期。",
+        policy.provider === "tdx"
+          ? "以 TDX 查詢當下的台灣大眾運輸路網近似補齊歷史路徑；參考日期不是原始行程日期。"
+          : "以 Transitous 目前班表近似補齊歷史大眾運輸路徑；參考日期不是原始行程日期。",
       originalMode: request.mode,
     };
   }
