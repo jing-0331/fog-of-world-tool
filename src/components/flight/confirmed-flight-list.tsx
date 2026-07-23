@@ -43,6 +43,7 @@ export function ConfirmedFlightList({
             <p>{flight.durationMinutes} 分鐘</p>
             <div className="button-row">
               <button
+                className="secondary-button compact-button"
                 type="button"
                 aria-label={`編輯 ${flight.flightNumber}`}
                 onClick={() => onEdit(flight)}
@@ -50,6 +51,7 @@ export function ConfirmedFlightList({
                 編輯
               </button>
               <button
+                className="danger-button compact-button"
                 type="button"
                 aria-label={`刪除 ${flight.flightNumber}`}
                 onClick={() => onDelete(flight.id)}
@@ -60,7 +62,7 @@ export function ConfirmedFlightList({
           </article>
         ))}
       </div>
-      <button type="button" onClick={onAdd}>
+      <button className="add-flight-button" type="button" onClick={onAdd}>
         ＋ 新增下一個航班
       </button>
     </section>

@@ -22,7 +22,11 @@ export function FlightExportDialog({
         <h2 id="export-title">航班資訊是否無誤？</h2>
         <p>確認後會依清單順序尋找路線並產生一個 GPX 檔。</p>
         <div className="button-row">
-          <button type="button" onClick={onCancel}>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={onCancel}
+          >
             返回檢查
           </button>
           <button className="primary-button" type="button" onClick={onConfirm}>

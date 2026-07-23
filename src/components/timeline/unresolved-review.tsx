@@ -162,7 +162,7 @@ export function UnresolvedReview({
           <div className="flex gap-2">
             <button
               type="button"
-              className="rounded-full border border-slate-300 px-3 py-1 text-sm"
+              className="secondary-button compact-button rounded-full border border-slate-300 px-3 py-1 text-sm"
               onClick={() =>
                 setCurrentIndex(
                   (safeIndex - 1 + unresolvedItems.length) %
@@ -174,7 +174,7 @@ export function UnresolvedReview({
             </button>
             <button
               type="button"
-              className="rounded-full border border-slate-300 px-3 py-1 text-sm"
+              className="secondary-button compact-button rounded-full border border-slate-300 px-3 py-1 text-sm"
               onClick={() =>
                 setCurrentIndex((safeIndex + 1) % unresolvedItems.length)
               }

@@ -111,7 +111,7 @@ export function TimelineUploader({
   return (
     <section className="workflow-panel grid gap-4">
       <div
-        className="grid min-h-48 place-items-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center"
+        className="timeline-dropzone grid min-h-48 place-items-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-6 text-center"
         data-testid="timeline-dropzone"
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
@@ -176,7 +176,11 @@ export function TimelineUploader({
       ) : null}
       {error ? <p role="alert">{error}</p> : null}
       {status !== "idle" && status !== "parsing" ? (
-        <button type="button" onClick={reset}>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={reset}
+        >
           重新選擇檔案
         </button>
       ) : null}

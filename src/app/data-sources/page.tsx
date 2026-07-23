@@ -43,7 +43,7 @@ const sources = [
 export default function DataSourcesPage() {
   return (
     <main className="page-shell">
-      <article className="panel grid gap-8">
+      <article className="panel data-sources-panel grid gap-8">
         <header>
           <p className="eyebrow">透明度</p>
           <h1>資料來源與使用限制</h1>
