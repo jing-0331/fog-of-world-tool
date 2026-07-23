@@ -1,0 +1,126 @@
+{
+  "semanticSegments": [
+    {
+      "startTime": "2026-01-03T08:00:00+09:00",
+      "endTime": "2026-01-03T08:30:00+09:00",
+      "startTimezoneUtcOffsetMinutes": 540,
+      "endTimezoneUtcOffsetMinutes": 540,
+      "visit": {
+        "topCandidate": {
+          "semanticType": "UNKNOWN",
+          "probability": 0.75,
+          "placeLocation": { "latLng": "geo:1.0000000,2.0000000" }
+        }
+      },
+      "timelinePath": [
+        { "point": "1.0000000°, 2.0000000°", "time": "2026-01-03T08:00:00+09:00" },
+        { "point": "1.0050000°, 2.0050000°", "time": "2026-01-03T08:30:00+09:00" }
+      ]
+    },
+    {
+      "startTime": "2026-01-01T08:00:00+08:00",
+      "endTime": "2026-01-01T08:20:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:0.0000000,0.0000000" },
+        "end": { "latLng": "geo:0.0100000,0.0100000" },
+        "topCandidate": { "type": "WALKING", "probability": 0.98 }
+      }
+    },
+    {
+      "startTime": "2026-01-01T09:00:00+08:00",
+      "endTime": "2026-01-01T09:20:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:0.0100000,0.0100000" },
+        "end": { "latLng": "geo:0.0200000,0.0200000" },
+        "topCandidate": { "type": "RUNNING", "probability": 0.97 }
+      }
+    },
+    {
+      "startTime": "2026-01-01T10:00:00+08:00",
+      "endTime": "2026-01-01T10:20:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:0.0200000,0.0200000" },
+        "end": { "latLng": "geo:0.0300000,0.0300000" },
+        "topCandidate": { "type": "CYCLING", "probability": 0.96 }
+      }
+    },
+    {
+      "startTime": "2026-01-01T11:00:00+08:00",
+      "endTime": "2026-01-01T11:20:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:0.0300000,0.0300000" },
+        "end": { "latLng": "geo:0.0400000,0.0400000" },
+        "topCandidate": { "type": "MOTORCYCLING", "probability": 0.95 }
+      }
+    },
+    {
+      "startTime": "2026-01-01T12:00:00+08:00",
+      "endTime": "2026-01-01T12:20:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:0.0400000,0.0400000" },
+        "end": { "latLng": "geo:0.0500000,0.0500000" },
+        "topCandidate": { "type": "IN_PASSENGER_VEHICLE", "probability": 0.94 }
+      }
+    },
+    {
+      "startTime": "2026-01-01T13:00:00+08:00",
+      "endTime": "2026-01-01T13:20:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:0.0500000,0.0500000" },
+        "end": { "latLng": "geo:0.0600000,0.0600000" },
+        "topCandidate": { "type": "IN_TRAIN", "probability": 0.93 }
+      }
+    },
+    {
+      "startTime": "2026-01-01T14:00:00+08:00",
+      "endTime": "2026-01-01T14:20:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:0.0600000,0.0600000" },
+        "end": { "latLng": "geo:0.0700000,0.0700000" },
+        "topCandidate": { "type": "IN_SUBWAY", "probability": 0.92 }
+      }
+    },
+    {
+      "startTime": "2026-01-01T15:00:00+08:00",
+      "endTime": "2026-01-01T15:20:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:0.0700000,0.0700000" },
+        "end": { "latLng": "geo:0.0800000,0.0800000" },
+        "topCandidate": { "type": "IN_BUS", "probability": 0.91 }
+      }
+    },
+    {
+      "startTime": "2026-01-01T16:00:00+08:00",
+      "endTime": "2026-01-01T16:20:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:0.0800000,0.0800000" },
+        "end": { "latLng": "geo:0.0900000,0.0900000" },
+        "topCandidate": { "type": "IN_TRAM", "probability": 0.90 }
+      }
+    },
+    {
+      "startTime": "2026-01-01T17:00:00+08:00",
+      "endTime": "2026-01-01T17:20:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:0.0900000,0.0900000" },
+        "end": { "latLng": "geo:0.1000000,0.1000000" },
+        "topCandidate": { "type": "IN_FERRY", "probability": 0.89 }
+      }
+    },
+    {
+      "startTime": "2026-01-02T01:00:00Z",
+      "endTime": "2026-01-02T03:00:00Z",
+      "activity": {
+        "start": { "latLng": "geo:0.1000000,0.1000000" },
+        "end": { "latLng": "geo:1.0000000,2.0000000" },
+        "topCandidate": { "type": "FLYING", "probability": 0.99 }
+      }
+    }
+  ],
+  "rawSignals": [
+    { "wifiScan": { "deliveryTime": "2026-01-01T00:00:00Z" } }
+  ],
+  "userLocationProfile": {
+    "frequentPlaces": ["must-not-be-retained"]
+  }
+}
