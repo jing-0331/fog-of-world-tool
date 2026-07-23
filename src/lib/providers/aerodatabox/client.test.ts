@@ -260,6 +260,29 @@ describe("AeroDataBox client", () => {
       "/airports/search/term?q=EAS&limit=10",
     );
   });
+
+  it("searches a date range for representative same-number flights", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify(syntheticFlights), { status: 200 }),
+      );
+    const client = createAeroDataBoxClient({
+      apiKey: "test-key",
+      fetchFn,
+    });
+
+    const candidates = await client.searchFlightHistory(
+      "AB123",
+      "2026-06-01",
+      "2026-07-23",
+    );
+
+    expect(candidates).toHaveLength(3);
+    expect(String(fetchFn.mock.calls[0][0])).toContain(
+      "/flights/Number/AB123/2026-06-01/2026-07-23?dateLocalRole=Departure",
+    );
+  });
 });
 
 describe("normalizeFlightNumber", () => {

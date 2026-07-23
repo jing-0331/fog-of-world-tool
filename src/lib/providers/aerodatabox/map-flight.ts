@@ -45,14 +45,15 @@ function durationMinutes(start: string, end: string): number | null {
 
 function mapFlight(
   flight: AeroDataBoxFlight,
-  departureDate: string,
+  departureDate?: string,
 ): FlightCandidate | null {
   const scheduledDeparture = flight.departure.scheduledTime?.local;
   const scheduledArrival = flight.arrival.scheduledTime?.local;
   if (
     scheduledDeparture === undefined ||
     scheduledArrival === undefined ||
-    scheduledDeparture.slice(0, 10) !== departureDate
+    (departureDate !== undefined &&
+      scheduledDeparture.slice(0, 10) !== departureDate)
   ) {
     return null;
   }
@@ -119,5 +120,12 @@ export function mapAeroDataBoxFlights(
   return aeroDataBoxFlightListSchema
     .parse(raw)
     .map((flight) => mapFlight(flight, departureDate))
+    .filter((flight): flight is FlightCandidate => flight !== null);
+}
+
+export function mapAeroDataBoxFlightHistory(raw: unknown): FlightCandidate[] {
+  return aeroDataBoxFlightListSchema
+    .parse(raw)
+    .map((flight) => mapFlight(flight))
     .filter((flight): flight is FlightCandidate => flight !== null);
 }

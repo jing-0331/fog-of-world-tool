@@ -1,6 +1,7 @@
 import type { Airport, FlightCandidate } from "@/lib/domain/types";
 import {
   mapAeroDataBoxAirport,
+  mapAeroDataBoxFlightHistory,
   mapAeroDataBoxFlights,
 } from "@/lib/providers/aerodatabox/map-flight";
 import { aeroDataBoxAirportSearchSchema } from "@/lib/providers/aerodatabox/schemas";
@@ -21,6 +22,11 @@ export interface AeroDataBoxClient {
     departureDate: string,
   ): Promise<FlightCandidate[]>;
   searchAirports(query: string): Promise<Airport[]>;
+  searchFlightHistory(
+    flightNumber: string,
+    fromDate: string,
+    toDate: string,
+  ): Promise<FlightCandidate[]>;
 }
 
 export function normalizeFlightNumber(flightNumber: string): string {
@@ -109,6 +115,34 @@ export function createAeroDataBoxClient({
           throw noData("找不到符合條件的機場。");
         }
         return airports;
+      } catch (error) {
+        if (error instanceof ProviderError) {
+          throw error;
+        }
+        throw invalidPayload(error);
+      }
+    },
+
+    async searchFlightHistory(flightNumber, fromDate, toDate) {
+      const normalized = normalizeFlightNumber(flightNumber);
+      const url = new URL(
+        `/flights/Number/${encodeURIComponent(normalized)}/${fromDate}/${toDate}`,
+        baseUrl,
+      );
+      url.searchParams.set("dateLocalRole", "Departure");
+      url.searchParams.set("withLocation", "false");
+      url.searchParams.set("withFlightPlan", "true");
+      const response = await fetchWithRetry(url, { headers }, { fetchFn });
+      if (response.status === 204) {
+        throw noData("找不到近期同航班編號的航班。");
+      }
+
+      try {
+        const candidates = mapAeroDataBoxFlightHistory(await response.json());
+        if (candidates.length === 0) {
+          throw noData("找不到近期同航班編號的航班。");
+        }
+        return candidates;
       } catch (error) {
         if (error instanceof ProviderError) {
           throw error;
