@@ -17,6 +17,7 @@ describe("processing report", () => {
       invalidData: [{ segmentId: "f", message: "invalid" }],
       providerAttempts: [
         {
+          segmentId: "e",
           source: "openrouteservice",
           status: "failed",
           message: "failed",

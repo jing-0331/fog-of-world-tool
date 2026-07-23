@@ -170,6 +170,9 @@ describe("processTimeline", () => {
     );
 
     expect(result.report.unresolved).toHaveLength(1);
+    expect(result.report.providerAttempts).toEqual([
+      expect.objectContaining({ segmentId: "unresolved" }),
+    ]);
     expect(result.segments).toHaveLength(1);
     expect(result.segments[0].id).toContain("later");
     expect(result.partial).toBe(true);

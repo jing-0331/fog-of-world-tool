@@ -6,7 +6,10 @@ import {
   TimelineWorkflow,
   type TimelineWorkflowServices,
 } from "@/app/timeline/page";
-import type { ProcessTimelineResult } from "@/lib/timeline/process-timeline";
+import type {
+  processTimeline,
+  ProcessTimelineResult,
+} from "@/lib/timeline/process-timeline";
 import type { TimelineParseResult } from "@/lib/timeline/schema";
 import type { TimelineWorkerLike } from "@/components/timeline/timeline-uploader";
 
@@ -25,6 +28,35 @@ const parseResult: TimelineParseResult = {
     },
   ],
   dateRange: { min: "2026-01-01", max: "2026-01-03" },
+  invalid: { coordinates: 0, missingTime: 0, segments: 0 },
+};
+
+const twoGapParseResult: TimelineParseResult = {
+  segments: [
+    {
+      id: "first-gap",
+      startTime: "2026-01-01T00:00:00Z",
+      endTime: "2026-01-01T00:30:00Z",
+      activity: {
+        type: "WALKING",
+        startPoint: { lat: 0, lon: 0 },
+        endPoint: { lat: 0.1, lon: 0 },
+      },
+      timelinePath: [],
+    },
+    {
+      id: "second-gap",
+      startTime: "2026-01-02T00:00:00Z",
+      endTime: "2026-01-02T00:30:00Z",
+      activity: {
+        type: "IN_PASSENGER_VEHICLE",
+        startPoint: { lat: 1, lon: 0 },
+        endPoint: { lat: 1.1, lon: 0 },
+      },
+      timelinePath: [],
+    },
+  ],
+  dateRange: { min: "2026-01-01", max: "2026-01-02" },
   invalid: { coordinates: 0, missingTime: 0, segments: 0 },
 };
 
@@ -54,7 +86,7 @@ describe("TimelineWorkflow", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows progress/cancel, review, all-source failures, partial warning, size, and download", async () => {
+  it("shows only the review queue after processing, plus size and download", async () => {
     const user = userEvent.setup();
     let resolveProcessing!: (result: ProcessTimelineResult) => void;
     const processFn = vi.fn((legs, _dependencies, options) => {
@@ -89,6 +121,15 @@ describe("TimelineWorkflow", () => {
               message: "所有可用路線來源均失敗：合成失敗",
             },
           ],
+          providerAttempts: [
+            {
+              segmentId: gapId,
+              source: "openrouteservice",
+              status: "failed",
+              message: "合成失敗",
+              retryable: false,
+            },
+          ],
         },
         partial: true,
         warning: "部分路段未能加入 GPX；下載前請查看處理報告。",
@@ -99,16 +140,64 @@ describe("TimelineWorkflow", () => {
       await screen.findByRole("heading", { name: "待人工確認路段" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "處理報告" }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("所有來源皆失敗")).toBeInTheDocument();
-    expect(screen.getByText(/合成失敗/)).toBeInTheDocument();
-    expect(screen.getByText(/部分路段未能加入 GPX/)).toBeInTheDocument();
+      screen.queryByRole("heading", { name: "處理報告" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("時間軸記錄")).not.toBeInTheDocument();
+    expect(screen.queryByText("Google 時間軸")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/合成失敗/)).toHaveLength(1);
+    expect(
+      screen.queryByText(/部分路段未能加入 GPX/),
+    ).not.toBeInTheDocument();
     expect(screen.getByText(/2.0 KB/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "下載 GPX" })).toHaveAttribute(
       "download",
       "TimelineRoute260723.gpx",
     );
+  });
+
+  it("shows each review card only its own repair failure", async () => {
+    const user = userEvent.setup();
+    const processFn = vi.fn(
+      async (legs: Parameters<typeof processTimeline>[0]) => {
+        const gapIds = legs.flatMap((leg) =>
+          leg.gaps.map((gap) => gap.id),
+        );
+        return result({
+          report: {
+            ...emptyReport(),
+            unresolved: gapIds.map((segmentId, index) => ({
+              segmentId,
+              message: `所有可用路線來源均失敗：第${index + 1}段失敗`,
+            })),
+            providerAttempts: gapIds.map((segmentId, index) => ({
+              segmentId,
+              source: "openrouteservice",
+              status: "failed",
+              message: `第${index + 1}段失敗`,
+              retryable: false,
+            })),
+          },
+          partial: true,
+        });
+      },
+    );
+    renderWorkflow({
+      workerFactory: () => worker(twoGapParseResult),
+      processFn,
+    });
+
+    await upload(user);
+    await screen.findByText("上傳完成");
+    await user.click(screen.getByRole("radio", { name: "全部時間" }));
+    await user.click(screen.getByRole("button", { name: "開始產生 GPX" }));
+
+    expect(await screen.findByText(/第1段失敗/)).toBeInTheDocument();
+    expect(screen.queryByText(/第2段失敗/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "下一段" }));
+
+    expect(screen.queryByText(/第1段失敗/)).not.toBeInTheDocument();
+    expect(screen.getByText(/第2段失敗/)).toBeInTheDocument();
   });
 
   it("aborts processing and exposes no download for zero routes", async () => {
@@ -141,7 +230,9 @@ describe("TimelineWorkflow", () => {
       expect(screen.queryByText("取消處理")).not.toBeInTheDocument(),
     );
     expect(screen.queryByRole("link", { name: "下載 GPX" })).not.toBeInTheDocument();
-    expect(screen.getByText("沒有可匯出的路線。")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "處理報告" }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -171,14 +262,14 @@ async function upload(user: ReturnType<typeof userEvent.setup>) {
   );
 }
 
-function worker(): TimelineWorkerLike {
+function worker(result = parseResult): TimelineWorkerLike {
   const fake: TimelineWorkerLike = {
     onmessage: null,
     onerror: null,
     postMessage: vi.fn(() => {
       queueMicrotask(() => {
         fake.onmessage?.({
-          data: { type: "complete", result: parseResult },
+          data: { type: "complete", result },
         } as MessageEvent);
       });
     }),
