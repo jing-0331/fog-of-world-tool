@@ -94,7 +94,32 @@ export function serializeProviderError(error: ProviderError): {
 }
 
 export function asProviderError(error: unknown): ProviderError {
-  return error instanceof ProviderError
-    ? error
-    : networkProviderError(error instanceof Error ? error.name : undefined);
+  if (error instanceof ProviderError) {
+    return error;
+  }
+
+  const codes: ProviderErrorCode[] = [
+    "no_data",
+    "rate_limited",
+    "auth",
+    "quota",
+    "network",
+    "provider_unavailable",
+  ];
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    codes.includes(error.code as ProviderErrorCode) &&
+    "retryable" in error &&
+    typeof error.retryable === "boolean"
+  ) {
+    return new ProviderError({
+      code: error.code as ProviderErrorCode,
+      message: error.message,
+      retryable: error.retryable,
+    });
+  }
+
+  return networkProviderError(error instanceof Error ? error.name : undefined);
 }
