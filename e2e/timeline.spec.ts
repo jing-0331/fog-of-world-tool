@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 const fixture = join(
   process.cwd(),
@@ -24,10 +24,11 @@ test("uploads a synthetic Timeline and exports source-labelled GPX", async ({
   await page.getByRole("radio", { name: "全部時間" }).check();
   await page.getByRole("button", { name: "開始產生 GPX" }).click();
 
-  await expect(page.getByRole("heading", { name: "處理報告" })).toBeVisible();
-  await expect(page.getByText("時間軸記錄").first()).toBeVisible();
-  await expect(page.getByText("Google 時間軸").first()).toBeVisible();
-  await expect(page.getByText(/部分路段未能加入 GPX/)).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "處理報告" }),
+  ).toHaveCount(0);
+  await expect(page.getByText("時間軸記錄")).toHaveCount(0);
+  await expect(page.getByTestId("source-badge")).toHaveCount(0);
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("link", { name: "下載 GPX" }).click();
   const download = await downloadPromise;
@@ -40,7 +41,6 @@ test("uploads a synthetic Timeline and exports source-labelled GPX", async ({
   expect(gpx).toContain(
     "<fowt:skippedFlightCount>1</fowt:skippedFlightCount>",
   );
-  await expectReportMetadataMatches(page, gpx);
 });
 
 test("review queue can correct, exclude, and postpone unresolved gaps", async ({
@@ -115,7 +115,9 @@ test("review queue can correct, exclude, and postpone unresolved gaps", async ({
 
   await page.getByRole("button", { name: "暫時略過" }).click();
   await expect(page.getByText(/1 \/ 1/)).toBeVisible();
-  await expect(page.getByText(/部分路段未能加入 GPX/)).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "處理報告" }),
+  ).toHaveCount(0);
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("link", { name: "下載 GPX" }).click();
   const download = await downloadPromise;
@@ -123,24 +125,4 @@ test("review queue can correct, exclude, and postpone unresolved gaps", async ({
   expect(path).not.toBeNull();
   const gpx = await readFile(path!, "utf8");
   expect(gpx).toContain("<fowt:userOverride>true</fowt:userOverride>");
-  await expectReportMetadataMatches(page, gpx);
 });
-
-async function expectReportMetadataMatches(page: Page, gpx: string) {
-  const summary = await page.getByText(/^自動成功 \d+/).textContent();
-  expect(summary).not.toBeNull();
-
-  const excluded = Number(summary!.match(/排除 (\d+)/)?.[1]);
-  const skippedFlights = Number(summary!.match(/略過飛行 (\d+)/)?.[1]);
-  const unresolved = Number(summary!.match(/未解決 (\d+)/)?.[1]);
-
-  expect(gpx).toContain(
-    `<fowt:unresolvedCount>${unresolved}</fowt:unresolvedCount>`,
-  );
-  expect(gpx).toContain(
-    `<fowt:excludedCount>${excluded}</fowt:excludedCount>`,
-  );
-  expect(gpx).toContain(
-    `<fowt:skippedFlightCount>${skippedFlights}</fowt:skippedFlightCount>`,
-  );
-}

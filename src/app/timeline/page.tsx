@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { DateRangeSelector } from "@/components/timeline/date-range-selector";
 import { DownloadCard } from "@/components/download-card";
 import { ProgressPanel } from "@/components/progress-panel";
-import { TimelineReport } from "@/components/timeline/timeline-report";
 import {
   TimelineUploader,
   type TimelineWorkerLike,
@@ -73,7 +72,6 @@ export function TimelineWorkflow({
   );
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState<TimelineProgress | null>(null);
-  const [result, setResult] = useState<ProcessTimelineResult | null>(null);
   const [reviewItems, setReviewItems] = useState<UnresolvedReviewItem[]>([]);
   const [download, setDownload] = useState<{
     url: string;
@@ -111,7 +109,6 @@ export function TimelineWorkflow({
       return;
     }
     clearDownload();
-    setResult(null);
     setReviewItems([]);
     setProcessing(true);
     setProgress({
@@ -136,7 +133,6 @@ export function TimelineWorkflow({
         invalidData,
         name: "Google Timeline 路線",
       });
-      setResult(nextResult);
       setReviewItems(buildReviewItems(legs, nextResult));
       if (nextResult.downloadable && nextResult.gpx) {
         setDownload(createDownloadFn(nextResult.gpx, "timeline"));
@@ -164,14 +160,12 @@ export function TimelineWorkflow({
           clearDownload();
           setParseResult(parsed);
           setSelection(null);
-          setResult(null);
           setReviewItems([]);
         }}
         onReset={() => {
           clearDownload();
           setParseResult(null);
           setSelection(null);
-          setResult(null);
           setReviewItems([]);
         }}
       />
@@ -211,8 +205,6 @@ export function TimelineWorkflow({
           </button>
         </div>
       ) : null}
-
-      {result ? <TimelineReport result={result} /> : null}
 
       {reviewItems.length > 0 ? (
         <div className="workflow-panel">
@@ -382,7 +374,9 @@ function buildReviewItems(
       .map((gap) => ({
         gap,
         originalMode: leg.mode,
-        attempts: result.report.providerAttempts,
+        attempts: result.report.providerAttempts.filter(
+          (attempt) => attempt.segmentId === gap.id,
+        ),
         ...(probableIds.has(gap.id)
           ? { warning: "probable-flight" as const }
           : {}),

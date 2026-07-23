@@ -112,6 +112,10 @@ export interface RepairAttempt {
   retryable: boolean;
 }
 
+export interface ReportedRepairAttempt extends RepairAttempt {
+  segmentId: string;
+}
+
 export interface ReportItem {
   segmentId: string;
   message: string;
@@ -125,5 +129,5 @@ export interface ProcessingReport {
   skippedFlights: ReportItem[];
   unresolved: ReportItem[];
   invalidData: ReportItem[];
-  providerAttempts: RepairAttempt[];
+  providerAttempts: ReportedRepairAttempt[];
 }

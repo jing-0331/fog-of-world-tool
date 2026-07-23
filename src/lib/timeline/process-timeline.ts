@@ -212,7 +212,12 @@ export async function processTimeline(
         provenance,
       };
       segments.push(segment);
-      report.providerAttempts.push(...attempts);
+      report.providerAttempts.push(
+        ...attempts.map((attempt) => ({
+          ...attempt,
+          segmentId: gap.id,
+        })),
+      );
       const target = userCorrected
         ? report.userCorrectedSuccess
         : report.automaticSuccess;
@@ -232,6 +237,7 @@ export async function processTimeline(
       const policy = routePolicy(leg.mode);
       if (policy) {
         report.providerAttempts.push({
+          segmentId: gap.id,
           source: policy.provider,
           status: "failed",
           code: providerError.code,
