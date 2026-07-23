@@ -26,7 +26,13 @@ export interface CachedRoute {
 export interface StoredCorrection {
   gapId: string;
   action: "exclude" | "reroute";
+  originalSegmentId?: string;
+  schemaVersion?: string;
+  originalMode?: TransportMode;
   correctedMode?: TransportMode;
+  normalizedRoute?: CachedRoute;
+  finalSource?: RouteSource;
+  userOverride?: boolean;
   updatedAt: string;
 }
 
