@@ -68,7 +68,41 @@ export function buildRouteCacheKey(input: RouteCacheKeyInput): string {
 export function createRouteCache({
   databaseName = DEFAULT_DATABASE_NAME,
 }: { databaseName?: string } = {}) {
-  const database = openDB<RouteCacheDatabase>(databaseName, 1, {
+  let database: ReturnType<typeof openDatabase> | null = null;
+  const getDatabase = () => {
+    database ??= openDatabase(databaseName);
+    return database;
+  };
+
+  return {
+    async getRoute(key: string): Promise<CachedRoute | null> {
+      return (await (await getDatabase()).get("routes", key))?.route ?? null;
+    },
+    async putRoute(key: string, route: CachedRoute): Promise<void> {
+      await (await getDatabase()).put("routes", { key, route });
+    },
+    async clearRoutes(): Promise<void> {
+      await (await getDatabase()).clear("routes");
+    },
+    async getCorrection(gapId: string): Promise<StoredCorrection | null> {
+      return (await (await getDatabase()).get("corrections", gapId)) ?? null;
+    },
+    async putCorrection(correction: StoredCorrection): Promise<void> {
+      await (await getDatabase()).put("corrections", correction);
+    },
+    async clearCorrections(): Promise<void> {
+      await (await getDatabase()).clear("corrections");
+    },
+    async close(): Promise<void> {
+      if (database) {
+        (await database).close();
+      }
+    },
+  };
+}
+
+function openDatabase(databaseName: string) {
+  return openDB<RouteCacheDatabase>(databaseName, 1, {
     upgrade(db) {
       if (!db.objectStoreNames.contains("routes")) {
         db.createObjectStore("routes", { keyPath: "key" });
@@ -78,30 +112,6 @@ export function createRouteCache({
       }
     },
   });
-
-  return {
-    async getRoute(key: string): Promise<CachedRoute | null> {
-      return (await (await database).get("routes", key))?.route ?? null;
-    },
-    async putRoute(key: string, route: CachedRoute): Promise<void> {
-      await (await database).put("routes", { key, route });
-    },
-    async clearRoutes(): Promise<void> {
-      await (await database).clear("routes");
-    },
-    async getCorrection(gapId: string): Promise<StoredCorrection | null> {
-      return (await (await database).get("corrections", gapId)) ?? null;
-    },
-    async putCorrection(correction: StoredCorrection): Promise<void> {
-      await (await database).put("corrections", correction);
-    },
-    async clearCorrections(): Promise<void> {
-      await (await database).clear("corrections");
-    },
-    async close(): Promise<void> {
-      (await database).close();
-    },
-  };
 }
 
 function rounded(point: GeoPoint): string {

@@ -1,0 +1,35 @@
+{
+  "semanticSegments": [
+    {
+      "startTime": "2026-02-01T08:00:00+08:00",
+      "endTime": "2026-02-01T08:30:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:10.0000000,10.0000000" },
+        "end": { "latLng": "geo:10.1000000,10.1000000" },
+        "topCandidate": { "type": "WALKING", "probability": 0.8 }
+      }
+    },
+    {
+      "startTime": "2026-02-01T09:00:00+08:00",
+      "endTime": "2026-02-01T09:30:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:11.0000000,11.0000000" },
+        "end": { "latLng": "geo:11.1000000,11.1000000" },
+        "topCandidate": { "type": "WALKING", "probability": 0.8 }
+      }
+    },
+    {
+      "startTime": "2026-02-01T10:00:00+08:00",
+      "endTime": "2026-02-01T10:30:00+08:00",
+      "activity": {
+        "start": { "latLng": "geo:12.0000000,12.0000000" },
+        "end": { "latLng": "geo:12.1000000,12.1000000" },
+        "topCandidate": { "type": "WALKING", "probability": 0.8 }
+      }
+    }
+  ],
+  "rawSignals": [
+    { "wifiScan": { "deliveryTime": "2026-02-01T00:00:00Z" } }
+  ],
+  "userLocationProfile": "raw-profile-marker"
+}
