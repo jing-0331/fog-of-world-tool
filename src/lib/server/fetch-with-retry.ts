@@ -3,6 +3,8 @@ import {
   providerErrorFromStatus,
 } from "@/lib/server/provider-error";
 
+const MAX_INTERACTIVE_RETRY_DELAY_MILLISECONDS = 5_000;
+
 interface FetchWithRetryOptions {
   fetchFn?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
@@ -73,10 +75,16 @@ export async function fetchWithRetry(
     if (!providerError.retryable || attempt === maxAttempts) {
       throw providerError;
     }
-    await sleep(
+    const retryDelayMilliseconds =
       retryAfterMilliseconds(response) ??
-        baseDelayMilliseconds * 2 ** (attempt - 1),
-    );
+      baseDelayMilliseconds * 2 ** (attempt - 1);
+    if (
+      retryDelayMilliseconds >
+      MAX_INTERACTIVE_RETRY_DELAY_MILLISECONDS
+    ) {
+      throw providerError;
+    }
+    await sleep(retryDelayMilliseconds);
   }
 
   throw networkProviderError();

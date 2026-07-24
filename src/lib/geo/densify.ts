@@ -146,6 +146,43 @@ function linearInterpolate(
   return point;
 }
 
+function linearIntervalCount(
+  start: GeoPoint,
+  end: GeoPoint,
+  maxDistanceMeters: number,
+): number {
+  let intervalCount = Math.max(
+    1,
+    Math.ceil(distanceMeters(start, end) / maxDistanceMeters),
+  );
+
+  while (true) {
+    let previous = start;
+    let largestIntervalMeters = 0;
+    for (let interval = 1; interval <= intervalCount; interval += 1) {
+      const current =
+        interval === intervalCount
+          ? end
+          : linearInterpolate(start, end, interval / intervalCount);
+      largestIntervalMeters = Math.max(
+        largestIntervalMeters,
+        distanceMeters(previous, current),
+      );
+      previous = current;
+    }
+    if (largestIntervalMeters <= maxDistanceMeters) {
+      return intervalCount;
+    }
+
+    intervalCount = Math.max(
+      intervalCount + 1,
+      Math.ceil(
+        (intervalCount * largestIntervalMeters) / maxDistanceMeters,
+      ),
+    );
+  }
+}
+
 export function densifyPoints(
   points: GeoPoint[],
   {
@@ -164,10 +201,13 @@ export function densifyPoints(
   for (let index = 1; index < points.length; index += 1) {
     const start = points[index - 1];
     const end = points[index];
-    const intervalCount = Math.max(
-      1,
-      Math.ceil(distanceMeters(start, end) / maxDistanceMeters),
-    );
+    const intervalCount =
+      interpolation === "linear"
+        ? linearIntervalCount(start, end, maxDistanceMeters)
+        : Math.max(
+            1,
+            Math.ceil(distanceMeters(start, end) / maxDistanceMeters),
+          );
 
     for (let interval = 1; interval <= intervalCount; interval += 1) {
       result.push(

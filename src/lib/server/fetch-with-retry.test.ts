@@ -59,6 +59,28 @@ describe("fetchWithRetry", () => {
     expect(sleep).toHaveBeenCalledWith(2_000);
   });
 
+  it("does not wait for a Retry-After beyond the interactive retry budget", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(null, {
+        status: 429,
+        headers: { "Retry-After": "60" },
+      }),
+    );
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      fetchWithRetry("https://provider.invalid", undefined, {
+        fetchFn,
+        sleep,
+      }),
+    ).rejects.toMatchObject({
+      code: "rate_limited",
+      retryable: true,
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it.each([400, 401, 403])("does not retry status %s", async (status) => {
     const fetchFn = vi
       .fn()

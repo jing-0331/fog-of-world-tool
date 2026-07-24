@@ -79,6 +79,21 @@ describe("validateGpx", () => {
     expect(result.errors.join(" ")).toMatch(/2,?000/);
   });
 
+  it("reports one distance error per segment instead of repeating it per pair", () => {
+    const result = validateGpx(
+      gpxWithSegments(`
+        <trkseg>
+          <trkpt lat="0" lon="0"/>
+          <trkpt lat="0" lon="0.03"/>
+          <trkpt lat="0" lon="0.06"/>
+        </trkseg>`),
+    );
+
+    expect(result.errors).toEqual([
+      "Track segment 1 has adjacent points over 2,000 meters.",
+    ]);
+  });
+
   it("does not distance-check gaps between separate segments", () => {
     const result = validateGpx(
       gpxWithSegments(`

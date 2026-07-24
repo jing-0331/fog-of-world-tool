@@ -123,6 +123,7 @@ export function validateGpx(xml: string): GpxValidationResult {
         errors,
       ),
     );
+    let hasOversizedPair = false;
     for (let pointIndex = 1; pointIndex < validPoints.length; pointIndex += 1) {
       const previous = validPoints[pointIndex - 1];
       const current = validPoints[pointIndex];
@@ -131,10 +132,13 @@ export function validateGpx(xml: string): GpxValidationResult {
         current !== null &&
         distanceMeters(previous, current) > 2_000
       ) {
-        errors.push(
-          `Track segment ${segmentIndex + 1} has adjacent points over 2,000 meters.`,
-        );
+        hasOversizedPair = true;
       }
+    }
+    if (hasOversizedPair) {
+      errors.push(
+        `Track segment ${segmentIndex + 1} has adjacent points over 2,000 meters.`,
+      );
     }
   });
 
