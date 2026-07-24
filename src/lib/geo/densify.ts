@@ -3,6 +3,7 @@ import { distanceMeters } from "@/lib/geo/distance";
 
 interface DensifyOptions {
   maxDistanceMeters: number;
+  interpolation?: "spherical" | "linear";
 }
 
 function toRadians(degrees: number): number {
@@ -120,9 +121,37 @@ function sphericalInterpolate(
   return point;
 }
 
+function linearInterpolate(
+  start: GeoPoint,
+  end: GeoPoint,
+  fraction: number,
+): GeoPoint {
+  const longitudeDelta = normalizeLongitude(end.lon - start.lon);
+  const point: GeoPoint = {
+    lat: start.lat + (end.lat - start.lat) * fraction,
+    lon: normalizeLongitude(start.lon + longitudeDelta * fraction),
+  };
+  const time = interpolateTime(start.time, end.time, fraction);
+  const elevationMeters = interpolateNumber(
+    start.elevationMeters,
+    end.elevationMeters,
+    fraction,
+  );
+  if (time !== undefined) {
+    point.time = time;
+  }
+  if (elevationMeters !== undefined) {
+    point.elevationMeters = elevationMeters;
+  }
+  return point;
+}
+
 export function densifyPoints(
   points: GeoPoint[],
-  { maxDistanceMeters }: DensifyOptions,
+  {
+    maxDistanceMeters,
+    interpolation = "spherical",
+  }: DensifyOptions,
 ): GeoPoint[] {
   if (!Number.isFinite(maxDistanceMeters) || maxDistanceMeters <= 0) {
     throw new RangeError("maxDistanceMeters must be positive");
@@ -144,7 +173,9 @@ export function densifyPoints(
       result.push(
         interval === intervalCount
           ? { ...end }
-          : sphericalInterpolate(start, end, interval / intervalCount),
+          : interpolation === "linear"
+            ? linearInterpolate(start, end, interval / intervalCount)
+            : sphericalInterpolate(start, end, interval / intervalCount),
       );
     }
   }

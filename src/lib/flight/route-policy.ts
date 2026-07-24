@@ -34,8 +34,7 @@ export function flightRoutePolicy(
     completed,
     tryOpenSky:
       completed &&
-      ageDays <= 30 &&
-      flight.aircraftIcao24 !== undefined,
+      ageDays <= 30,
     useRepresentative: completed && ageDays > 100,
   };
 }

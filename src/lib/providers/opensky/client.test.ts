@@ -4,6 +4,237 @@ import { distanceMeters } from "@/lib/geo/distance";
 import { createOpenSkyClient } from "@/lib/providers/opensky/client";
 
 describe("OpenSky client", () => {
+  it("discovers IT 288 by callsign, time window, and endpoints when ICAO24 is missing", async () => {
+    const scheduledDepartureSeconds = Date.parse(
+      "2026-07-17T02:10:00Z",
+    ) / 1_000;
+    const actualArrivalSeconds = Date.parse(
+      "2026-07-17T05:31:00Z",
+    ) / 1_000;
+    const firstSeen = Date.parse("2026-07-17T03:50:53Z") / 1_000;
+    const lastSeen = Date.parse("2026-07-17T05:18:27Z") / 1_000;
+    const previousArrival = Date.parse("2026-07-17T01:30:00Z") / 1_000;
+    const origin = { lat: 22.5755, lon: 120.3508 };
+    const destination = { lat: 26.1958, lon: 127.6459 };
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: "token", expires_in: 1800 }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              icao24: "decoy1",
+              firstSeen: firstSeen - 60,
+              estDepartureAirport: "RCKH",
+              lastSeen: lastSeen,
+              estArrivalAirport: "ROAH",
+              callsign: "TTW289 ",
+              estDepartureAirportHorizDistance: 1_000,
+              estDepartureAirportVertDistance: 100,
+              estArrivalAirportHorizDistance: 1_000,
+              estArrivalAirportVertDistance: 100,
+              departureAirportCandidatesCount: 0,
+              arrivalAirportCandidatesCount: 0,
+            },
+            {
+              icao24: "89902c",
+              firstSeen,
+              estDepartureAirport: "RCKH",
+              lastSeen,
+              estArrivalAirport: "ROAH",
+              callsign: "TTW288 ",
+              estDepartureAirportHorizDistance: 1_000,
+              estDepartureAirportVertDistance: 100,
+              estArrivalAirportHorizDistance: 1_000,
+              estArrivalAirportVertDistance: 100,
+              departureAirportCandidatesCount: 0,
+              arrivalAirportCandidatesCount: 0,
+            },
+            {
+              icao24: "decoy2",
+              firstSeen,
+              estDepartureAirport: "RCKH",
+              lastSeen,
+              estArrivalAirport: "RCTP",
+              callsign: "TTW288 ",
+              estDepartureAirportHorizDistance: 1_000,
+              estDepartureAirportVertDistance: 100,
+              estArrivalAirportHorizDistance: 1_000,
+              estArrivalAirportVertDistance: 100,
+              departureAirportCandidatesCount: 0,
+              arrivalAirportCandidatesCount: 0,
+            },
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            icao24: "89902c",
+            startTime: previousArrival,
+            endTime: lastSeen,
+            callsign: "TTW288 ",
+            path: [
+              [
+                previousArrival - 1_800,
+                destination.lat,
+                destination.lon,
+                0,
+                0,
+                true,
+              ],
+              [
+                previousArrival,
+                origin.lat,
+                origin.lon,
+                0,
+                90,
+                true,
+              ],
+              [firstSeen, origin.lat, origin.lon, 0, 90, true],
+              [
+                (firstSeen + lastSeen) / 2,
+                24.5,
+                124,
+                10_000,
+                225,
+                false,
+              ],
+              [lastSeen, destination.lat, destination.lon, 0, 270, true],
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+    const client = createOpenSkyClient({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      fetchFn,
+    });
+
+    const points = await client.getFlightTrack({
+      flightNumber: "IT288",
+      departureTimeSeconds: scheduledDepartureSeconds,
+      arrivalTimeSeconds: actualArrivalSeconds,
+      originAirportIcao: "RCKH",
+      destinationAirportIcao: "ROAH",
+      origin,
+      destination,
+    });
+
+    expect(String(fetchFn.mock.calls[1][0])).toContain(
+      "/api/flights/departure?airport=RCKH",
+    );
+    expect(String(fetchFn.mock.calls[2][0])).toContain(
+      `/api/tracks/all?icao24=89902c&time=${Math.trunc(
+        (firstSeen + lastSeen) / 2,
+      )}`,
+    );
+    expect(points[0]).toMatchObject({
+      lat: origin.lat,
+      lon: origin.lon,
+      time: new Date(firstSeen * 1_000).toISOString(),
+    });
+    expect(
+      points.some(
+        (point) =>
+          point.time === new Date(previousArrival * 1_000).toISOString(),
+      ),
+    ).toBe(false);
+  });
+
+  it("validates a supplied ICAO24 through flight discovery before requesting its track", async () => {
+    const scheduledDepartureSeconds =
+      Date.parse("2026-07-17T02:10:00Z") / 1_000;
+    const actualArrivalSeconds =
+      Date.parse("2026-07-17T05:31:00Z") / 1_000;
+    const firstSeen = Date.parse("2026-07-17T03:50:53Z") / 1_000;
+    const lastSeen = Date.parse("2026-07-17T05:18:27Z") / 1_000;
+    const origin = { lat: 22.5755, lon: 120.3508 };
+    const destination = { lat: 26.1958, lon: 127.6459 };
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ access_token: "token", expires_in: 1800 }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              icao24: "89902c",
+              firstSeen,
+              estDepartureAirport: "RCKH",
+              lastSeen,
+              estArrivalAirport: "ROAH",
+              callsign: "TTW288 ",
+            },
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            icao24: "89902c",
+            startTime: firstSeen,
+            endTime: lastSeen,
+            callsign: "TTW288 ",
+            path: [
+              [firstSeen, origin.lat, origin.lon, 0, 90, true],
+              [
+                (firstSeen + lastSeen) / 2,
+                24.5,
+                124,
+                10_000,
+                225,
+                false,
+              ],
+              [lastSeen, destination.lat, destination.lon, 0, 270, true],
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+    const client = createOpenSkyClient({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      fetchFn,
+    });
+
+    const points = await client.getFlightTrack({
+      flightNumber: "IT288",
+      icao24: "bad001",
+      departureTimeSeconds: scheduledDepartureSeconds,
+      arrivalTimeSeconds: actualArrivalSeconds,
+      originAirportIcao: "RCKH",
+      destinationAirportIcao: "ROAH",
+      origin,
+      destination,
+    });
+
+    expect(String(fetchFn.mock.calls[1][0])).toContain(
+      "/api/flights/departure?airport=RCKH",
+    );
+    expect(String(fetchFn.mock.calls[2][0])).toContain(
+      "/api/tracks/all?icao24=89902c",
+    );
+    expect(
+      fetchFn.mock.calls.some(([input]) =>
+        String(input).includes("/api/tracks/all?icao24=bad001"),
+      ),
+    ).toBe(false);
+    expect(points.at(-1)).toMatchObject(destination);
+  });
+
   it("uses OAuth client credentials and maps the official track tuple", async () => {
     const fetchFn = vi
       .fn()

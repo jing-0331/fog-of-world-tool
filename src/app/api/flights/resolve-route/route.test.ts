@@ -1,8 +1,32 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createResolveRouteHandler } from "@/app/api/flights/resolve-route/route";
+import {
+  createResolveRouteHandler,
+  getOpenSkyTrackForFlight,
+} from "@/app/api/flights/resolve-route/route";
 
 describe("POST /api/flights/resolve-route", () => {
+  it("asks OpenSky to identify a recent completed flight when ICAO24 is absent", async () => {
+    const flight = validFlight();
+    flight.flightNumber = "IT288";
+    const getFlightTrack = vi.fn().mockResolvedValue([
+      flight.departureAirport.point,
+      flight.arrivalAirport.point,
+    ]);
+
+    await getOpenSkyTrackForFlight({ getFlightTrack }, flight);
+
+    expect(getFlightTrack).toHaveBeenCalledWith({
+      flightNumber: "IT288",
+      departureTimeSeconds: Date.parse(flight.actualDeparture) / 1_000,
+      arrivalTimeSeconds: Date.parse(flight.actualArrival) / 1_000,
+      originAirportIcao: "TORG",
+      destinationAirportIcao: "TDST",
+      origin: flight.departureAirport.point,
+      destination: flight.arrivalAirport.point,
+    });
+  });
+
   it("rejects invalid flight input before resolution", async () => {
     const resolve = vi.fn();
     const response = await createResolveRouteHandler(resolve)(
@@ -24,11 +48,11 @@ describe("POST /api/flights/resolve-route", () => {
           { lat: 0, lon: 0.01 },
         ],
         provenance: {
-          kind: "great-circle",
+          kind: "direct-line",
           source: "local-calculation",
-          referenceDate: "2026-07-22",
+          referenceDate: null,
           approximate: true,
-          explanation: "Local fallback",
+          explanation: "Direct fallback",
         },
       },
       attempts: [],

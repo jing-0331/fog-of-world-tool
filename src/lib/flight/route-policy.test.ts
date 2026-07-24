@@ -34,14 +34,28 @@ describe("flightRoutePolicy", () => {
     expect(flightRoutePolicy(flight, now).tryOpenSky).toBe(false);
   });
 
-  it("requires a completed flight and ICAO24 for OpenSky", () => {
+  it("requires a completed flight for OpenSky", () => {
     const incomplete = flightAtAge(1);
     incomplete.status = "EnRoute";
-    const noAircraft = flightAtAge(1);
-    delete noAircraft.aircraftIcao24;
 
     expect(flightRoutePolicy(incomplete, now).tryOpenSky).toBe(false);
-    expect(flightRoutePolicy(noAircraft, now).tryOpenSky).toBe(false);
+  });
+
+  it("tries OpenSky for IT 288 within 30 days even when AeroDataBox omitted ICAO24", () => {
+    const executionDate = new Date("2026-07-24T12:04:00Z");
+    const flight = flightAtAge(7);
+    flight.flightNumber = "IT288";
+    flight.scheduledDeparture = "2026-07-17T02:10:00Z";
+    delete flight.actualDeparture;
+    flight.scheduledArrival = "2026-07-17T04:00:00Z";
+    flight.actualArrival = "2026-07-17T05:31:00Z";
+    delete flight.aircraftIcao24;
+
+    expect(flightRoutePolicy(flight, executionDate)).toMatchObject({
+      ageDays: 7,
+      completed: true,
+      tryOpenSky: true,
+    });
   });
 
   it("tries OpenSky for a departed flight after its scheduled arrival", () => {

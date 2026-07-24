@@ -48,6 +48,10 @@ const flightSchema = z.object({
 
 const requestSchema = z.object({ flight: flightSchema });
 type Resolve = (flight: ConfirmedFlight) => Promise<ResolveFlightRouteResult>;
+type OpenSkyClient = Pick<
+  ReturnType<typeof createOpenSkyClient>,
+  "getFlightTrack"
+>;
 
 export function createResolveRouteHandler(resolve: Resolve) {
   return async function handler(request: Request): Promise<NextResponse> {
@@ -82,6 +86,37 @@ function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+export async function getOpenSkyTrackForFlight(
+  openSky: OpenSkyClient,
+  referenceFlight: ConfirmedFlight,
+) {
+  const originAirportIcao = referenceFlight.departureAirport.icao;
+  const destinationAirportIcao = referenceFlight.arrivalAirport.icao;
+  if (!originAirportIcao || !destinationAirportIcao) return null;
+
+  const departureTimeSeconds =
+    Date.parse(
+      referenceFlight.actualDeparture ??
+        referenceFlight.scheduledDeparture,
+    ) / 1_000;
+  const arrivalTimeSeconds =
+    Date.parse(
+      referenceFlight.actualArrival ?? referenceFlight.scheduledArrival,
+    ) / 1_000;
+  return openSky.getFlightTrack({
+    flightNumber: referenceFlight.flightNumber,
+    ...(referenceFlight.aircraftIcao24
+      ? { icao24: referenceFlight.aircraftIcao24 }
+      : {}),
+    departureTimeSeconds,
+    arrivalTimeSeconds,
+    originAirportIcao,
+    destinationAirportIcao,
+    origin: referenceFlight.departureAirport.point,
+    destination: referenceFlight.arrivalAirport.point,
+  });
+}
+
 async function resolveConfiguredFlight(
   flight: ConfirmedFlight,
 ): Promise<ResolveFlightRouteResult> {
@@ -104,20 +139,9 @@ async function resolveConfiguredFlight(
 
   return resolveFlightRoute(flight, {
     async getOpenSkyTrack(referenceFlight) {
-      if (!openSky || !referenceFlight.aircraftIcao24) return null;
-      const start = Date.parse(
-        referenceFlight.actualDeparture ??
-          referenceFlight.scheduledDeparture,
-      );
-      const end = Date.parse(
-        referenceFlight.actualArrival ?? referenceFlight.scheduledArrival,
-      );
-      return openSky.getTrack({
-        icao24: referenceFlight.aircraftIcao24,
-        timestampSeconds: Math.trunc((start + end) / 2_000),
-        origin: referenceFlight.departureAirport.point,
-        destination: referenceFlight.arrivalAirport.point,
-      });
+      return openSky
+        ? getOpenSkyTrackForFlight(openSky, referenceFlight)
+        : null;
     },
 
     async resolveFiledPlan(referenceFlight) {
