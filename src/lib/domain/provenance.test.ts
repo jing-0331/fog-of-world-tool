@@ -11,6 +11,7 @@ describe("routeKindLabel", () => {
     expect(routeKindLabel("actual-track")).toBe("實際軌跡");
     expect(routeKindLabel("filed-plan")).toBe("申報航路");
     expect(routeKindLabel("simulated-plan")).toBe("模擬航路");
+    expect(routeKindLabel("direct-line")).toBe("直接連線");
     expect(routeKindLabel("great-circle")).toBe("大圓近似");
   });
 

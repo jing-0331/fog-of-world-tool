@@ -3,6 +3,7 @@ export type RouteKind =
   | "actual-track"
   | "filed-plan"
   | "simulated-plan"
+  | "direct-line"
   | "great-circle"
   | "ground-route"
   | "transit-route";

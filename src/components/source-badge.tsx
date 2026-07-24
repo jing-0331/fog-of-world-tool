@@ -17,6 +17,11 @@ export function SourceBadge({
   referenceDate,
   approximate = false,
 }: SourceBadgeProps) {
+  const showReferenceDate =
+    referenceDate &&
+    kind !== "actual-track" &&
+    kind !== "direct-line";
+
   return (
     <span
       className="source-badge"
@@ -27,7 +32,7 @@ export function SourceBadge({
       <span className="badge-pill" data-tone="source">
         {routeSourceLabel(source)}
       </span>
-      {referenceDate ? (
+      {showReferenceDate ? (
         <span className="badge-pill">參考日期 {referenceDate}</span>
       ) : null}
       {approximate ? (

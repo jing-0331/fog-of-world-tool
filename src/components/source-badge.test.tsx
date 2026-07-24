@@ -15,7 +15,7 @@ describe("SourceBadge", () => {
 
     expect(screen.getByText("實際軌跡")).toBeVisible();
     expect(screen.getByText("OpenSky")).toBeVisible();
-    expect(screen.getByText("參考日期 2026-07-20")).toBeVisible();
+    expect(screen.queryByText("參考日期 2026-07-20")).not.toBeInTheDocument();
     expect(screen.getByTestId("source-badge")).toHaveAttribute(
       "data-route-kind",
       "actual-track",
@@ -32,5 +32,26 @@ describe("SourceBadge", () => {
     );
 
     expect(screen.getByText("近似路線")).toBeVisible();
+  });
+
+  it("shows reference dates for filed routes but not direct lines", () => {
+    const { rerender } = render(
+      <SourceBadge
+        kind="filed-plan"
+        source="flight-plan-database"
+        referenceDate="2026-07-20"
+      />,
+    );
+
+    expect(screen.getByText("參考日期 2026-07-20")).toBeVisible();
+
+    rerender(
+      <SourceBadge
+        kind="direct-line"
+        source="local-calculation"
+        referenceDate="2026-07-20"
+      />,
+    );
+    expect(screen.queryByText("參考日期 2026-07-20")).not.toBeInTheDocument();
   });
 });

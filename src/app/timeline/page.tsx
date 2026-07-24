@@ -189,7 +189,7 @@ export function TimelineWorkflow({
       ) : null}
 
       {processing && progress ? (
-        <div className="grid gap-3">
+        <div className="workflow-action-stack">
           <ProgressPanel
             title="處理 Google 時間軸"
             message={progress.message}
