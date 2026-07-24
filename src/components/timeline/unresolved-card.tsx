@@ -96,7 +96,7 @@ export function UnresolvedCard({
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          className="primary-button compact-button text-sm disabled:opacity-50"
           disabled={pending}
           onClick={onRetry}
         >
@@ -104,7 +104,7 @@ export function UnresolvedCard({
         </button>
         <button
           type="button"
-          className="rounded-full border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700 disabled:opacity-50"
+          className="danger-button compact-button text-sm disabled:opacity-50"
           disabled={pending}
           onClick={onExclude}
         >
@@ -112,7 +112,7 @@ export function UnresolvedCard({
         </button>
         <button
           type="button"
-          className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+          className="secondary-button compact-button text-sm disabled:opacity-50"
           disabled={pending}
           onClick={onSkip}
         >

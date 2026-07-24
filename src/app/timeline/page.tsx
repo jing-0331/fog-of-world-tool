@@ -198,7 +198,7 @@ export function TimelineWorkflow({
           />
           <button
             type="button"
-            className="rounded-full border border-rose-300 bg-white px-4 py-2 font-semibold text-rose-700"
+            className="danger-button"
             onClick={() => controller?.abort()}
           >
             取消處理

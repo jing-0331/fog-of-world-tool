@@ -177,7 +177,11 @@ export function FlightSearchForm({
           <button className="primary-button" type="submit" disabled={loading}>
             確認手動資料
           </button>
-          <button type="button" onClick={reset}>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={reset}
+          >
             重新輸入
           </button>
         </form>
@@ -222,7 +226,11 @@ export function FlightSearchForm({
               onConfirm={(selected) => onConfirm(confirmed(selected))}
             />
           ))}
-          <button type="button" onClick={reset}>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={reset}
+          >
             重新輸入
           </button>
         </div>

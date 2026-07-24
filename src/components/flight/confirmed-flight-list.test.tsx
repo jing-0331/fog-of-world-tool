@@ -5,6 +5,21 @@ import { describe, expect, it, vi } from "vitest";
 import { ConfirmedFlightList } from "@/components/flight/confirmed-flight-list";
 
 describe("ConfirmedFlightList", () => {
+  it("renders the add action as an outlined button", () => {
+    render(
+      <ConfirmedFlightList
+        flights={[flight()]}
+        onAdd={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "＋ 新增下一個航班" }),
+    ).toHaveClass("add-flight-button");
+  });
+
   it("shows airport-local details and supports add, edit, and delete", async () => {
     const user = userEvent.setup();
     const onAdd = vi.fn();
