@@ -12,7 +12,6 @@ describe("routeKindLabel", () => {
     expect(routeKindLabel("filed-plan")).toBe("申報航路");
     expect(routeKindLabel("simulated-plan")).toBe("模擬航路");
     expect(routeKindLabel("direct-line")).toBe("直接連線");
-    expect(routeKindLabel("great-circle")).toBe("大圓近似");
   });
 
   it("labels Timeline and repaired route kinds", () => {

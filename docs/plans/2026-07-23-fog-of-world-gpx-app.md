@@ -16,11 +16,11 @@
 
 - Home buttons are labeled `航班` and `時間軸`.
 - Flight search uses AeroDataBox. OpenSky is only an optional recent-track enhancement.
-- Flight route fallback order is actual OpenSky track, AeroDataBox filed plan, Flight Plan Database simulated plan, then local great-circle approximation.
-- OpenSky REST tracks are attempted only for completed flights no more than 30 days old.
+- Flight route fallback order is actual OpenSky track, AeroDataBox filed plan, Flight Plan Database simulated plan, then a densified direct airport-to-airport line.
+- OpenSky REST tracks are attempted only for completed flights no more than 30 days old, after identifying the aircraft from callsign, time window, and exact origin/destination; a supplied ICAO24 is only a candidate preference.
 - Flights 31–100 days old keep exact flight metadata when available but use an approximate route.
 - Flights more than 100 days old use the most recent route with the same flight number and identical origin/destination; the UI and GPX must show the reference date.
-- Flight route labels are exactly `實際軌跡`, `申報航路`, `模擬航路`, and `大圓近似`, with a separate data-source label.
+- Flight route labels are exactly `實際軌跡`, `申報航路`, `模擬航路`, and `直接連線`, with a separate data-source label.
 - Timeline input is parsed locally. Raw JSON, Wi-Fi scans, and user-location profile data must never be sent to the server.
 - Recorded Timeline points win. Route providers only repair missing/sparse legs.
 - Explicit and probable flights split GPX track segments and appear in the final report.
@@ -41,7 +41,7 @@ type RouteKind =
   | 'actual-track'
   | 'filed-plan'
   | 'simulated-plan'
-  | 'great-circle'
+  | 'direct-line'
   | 'ground-route'
   | 'transit-route';
 
@@ -216,7 +216,7 @@ Test the exact Traditional Chinese flight labels and source labels:
 expect(routeKindLabel('actual-track')).toBe('實際軌跡');
 expect(routeKindLabel('filed-plan')).toBe('申報航路');
 expect(routeKindLabel('simulated-plan')).toBe('模擬航路');
-expect(routeKindLabel('great-circle')).toBe('大圓近似');
+expect(routeKindLabel('direct-line')).toBe('直接連線');
 expect(routeSourceLabel('opensky')).toBe('OpenSky');
 ```
 
@@ -570,7 +570,7 @@ Inject provider functions and prove this order:
 OpenSky actual track
 → AeroDataBox filed plan
 → Flight Plan Database simulated plan
-→ local great-circle
+→ direct airport-to-airport line
 ```
 
 Assert each successful result contains the correct kind, source, reference date, explanation, and approximation flag.
@@ -585,13 +585,13 @@ Expected: FAIL.
 
 **Step 4: Implement OpenSky adapter**
 
-Use AeroDataBox aircraft ICAO24 plus a timestamp inside the completed flight. Reject the track when its first/last usable points are implausibly far from the confirmed airports. Preserve OpenSky timestamps/elevation and then densify.
+Use AeroDataBox aircraft ICAO24 when available. Otherwise identify the aircraft through OpenSky flight data using the flight number/callsign, a bounded time window, and exact origin/destination ICAO codes. Query the matched flight timestamp and reject tracks whose time slice or endpoints do not match the confirmed leg. Preserve OpenSky timestamps/elevation and then densify.
 
 **Step 5: Implement filed and simulated routes**
 
 - When AeroDataBox returns a filed route string, resolve recognizable navaids through Flight Plan Database's public navaid search; require the confirmed airport endpoints and at least one usable intermediate point before labeling it `filed-plan`.
 - Query Flight Plan Database by exact origin/destination ICAO, sort by popularity, and decode `encodedPolyline` as precision 5. Do not call endpoints that create or modify external flight plans.
-- If neither route works, create the great-circle route locally.
+- If neither route works, connect the confirmed airports directly, densify linearly to at most 2 km, and use a null reference date.
 
 **Step 6: Add the API route**
 

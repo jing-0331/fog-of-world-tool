@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ConfirmedFlight, GeoPoint } from "@/lib/domain/types";
 import { resolveFlightRoute } from "@/lib/flight/resolve-flight-route";
+import { distanceMeters } from "@/lib/geo/distance";
 
 const now = new Date("2026-07-23T12:00:00Z");
 const route: GeoPoint[] = [
@@ -67,10 +68,13 @@ describe("resolveFlightRoute", () => {
     },
   );
 
-  it("falls back locally in the exact provider order", async () => {
+  it("falls back to a densified direct line in the exact provider order", async () => {
     const calls: string[] = [];
+    const flight = recentFlight();
+    flight.departureAirport.point = { lat: 60, lon: 0 };
+    flight.arrivalAirport.point = { lat: 60, lon: 0.1 };
     const result = await resolveFlightRoute(
-      recentFlight(),
+      flight,
       {
         getOpenSkyTrack: vi.fn(async () => {
           calls.push("openSky");
@@ -90,10 +94,23 @@ describe("resolveFlightRoute", () => {
 
     expect(calls).toEqual(["openSky", "filedPlan", "simulatedPlan"]);
     expect(result.segment.provenance).toMatchObject({
-      kind: "great-circle",
+      kind: "direct-line",
       source: "local-calculation",
+      referenceDate: null,
       approximate: true,
     });
+    expect(result.segment.points.length).toBeGreaterThan(2);
+    expect(
+      result.segment.points.every((point) => point.lat === 60),
+    ).toBe(true);
+    for (let index = 1; index < result.segment.points.length; index += 1) {
+      expect(
+        distanceMeters(
+          result.segment.points[index - 1],
+          result.segment.points[index],
+        ),
+      ).toBeLessThanOrEqual(2_000.001);
+    }
     expect(result.attempts.map((attempt) => attempt.source)).toEqual([
       "opensky",
       "aerodatabox",

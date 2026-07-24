@@ -65,15 +65,15 @@ TRANSITOUS_CONTACT_URL=https://github.com/YOUR_ACCOUNT/YOUR_REPOSITORY
 
 1. 輸入航班號與出發日期，從候選班次中明確確認。
 2. 可連續加入多個航班，再一次產生 `FlightRouteYYMMDD.gpx`。
-3. 路線依可用資料逐級嘗試：OpenSky 實際軌跡 → 申報航路 → Flight Plan Database 模擬航路 → 本機大圓近似。
+3. 路線依可用資料逐級嘗試：OpenSky 實際軌跡 → 申報航路 → Flight Plan Database 模擬航路 → 機場直接連線。
 
 時間規則：
 
-- 已抵達、不超過 30 天且有 ICAO24 的航班才嘗試 OpenSky 歷史軌跡。
+- 已抵達且不超過 30 天的航班會優先嘗試 OpenSky 歷史軌跡；系統會以航班號／callsign、時間窗與起訖機場驗證航空器，再查詢對應軌跡，AeroDataBox 提供的 ICAO24 僅作候選偏好。
 - 超過 100 天的已抵達航班，會先在最近 100 天內尋找相同航班號與起訖機場的代表班次；畫面及 GPX 使用該代表班次的參考日期。
 - 31–100 天或沒有合適代表班次時，跳過 OpenSky，繼續使用其餘來源。
 
-資料不足時產生的大圓路線只是地理近似；Flight Plan Database 資料僅供飛行模擬，兩者都不是實際飛行軌跡，也不得用於真實世界導航。
+資料不足時只會直接連接出發與抵達機場；Flight Plan Database 資料僅供飛行模擬，兩者都不是實際飛行軌跡，也不得用於真實世界導航。
 
 ## Timeline 工作流與隱私
 

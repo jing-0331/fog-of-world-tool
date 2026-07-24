@@ -10,7 +10,6 @@ const ROUTE_KIND_LABELS = {
   "filed-plan": "申報航路",
   "simulated-plan": "模擬航路",
   "direct-line": "直接連線",
-  "great-circle": "大圓近似",
   "ground-route": "地面路線",
   "transit-route": "大眾運輸近似",
 } satisfies Record<RouteKind, string>;
