@@ -88,8 +88,12 @@ function timedAndDense(
   points: GeoPoint[],
   flight: ConfirmedFlight,
   preserveTimes: boolean,
+  directLine: boolean,
 ): GeoPoint[] {
-  const dense = densifyPoints(points, { maxDistanceMeters: 2_000 });
+  const dense = densifyPoints(points, {
+    maxDistanceMeters: 2_000,
+    ...(directLine ? { interpolation: "linear" as const } : {}),
+  });
   if (preserveTimes && dense.every((point) => point.time !== undefined)) {
     return dense;
   }
@@ -184,12 +188,12 @@ export async function resolveFlightRoute(
         routeFlight.departureAirport.point,
         routeFlight.arrivalAirport.point,
       ],
-      kind: "great-circle",
+      kind: "direct-line",
       source: "local-calculation",
       approximate: true,
-      explanation: "所有航路來源皆無資料，使用本機大圓近似。",
+      explanation: "所有航路來源皆無資料，直接連接出發與抵達機場。",
     };
-    attempts.push(successAttempt("local-calculation", "已建立本機大圓近似。"));
+    attempts.push(successAttempt("local-calculation", "已建立機場直接連線。"));
   }
 
   const segment: RouteSegment = {
@@ -200,11 +204,15 @@ export async function resolveFlightRoute(
       route.points,
       routeFlight,
       route.kind === "actual-track",
+      route.kind === "direct-line",
     ),
     provenance: {
       kind: route.kind,
       source: route.source,
-      referenceDate: datePart(routeFlight.scheduledDeparture),
+      referenceDate:
+        route.kind === "direct-line"
+          ? null
+          : datePart(routeFlight.scheduledDeparture),
       approximate: route.approximate,
       explanation: route.explanation,
     },

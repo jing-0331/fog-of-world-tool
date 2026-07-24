@@ -9,7 +9,7 @@ const ROUTE_KIND_LABELS = {
   "actual-track": "實際軌跡",
   "filed-plan": "申報航路",
   "simulated-plan": "模擬航路",
-  "great-circle": "大圓近似",
+  "direct-line": "直接連線",
   "ground-route": "地面路線",
   "transit-route": "大眾運輸近似",
 } satisfies Record<RouteKind, string>;

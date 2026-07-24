@@ -25,7 +25,7 @@ describe("SourceBadge", () => {
   it("identifies approximate routes in text", () => {
     render(
       <SourceBadge
-        kind="great-circle"
+        kind="direct-line"
         source="local-calculation"
         approximate
       />,
