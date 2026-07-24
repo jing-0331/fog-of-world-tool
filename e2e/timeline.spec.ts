@@ -30,7 +30,7 @@ test("uploads a synthetic Timeline and exports source-labelled GPX", async ({
   await expect(page.getByText("時間軸記錄")).toHaveCount(0);
   await expect(page.getByTestId("source-badge")).toHaveCount(0);
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("link", { name: "下載 GPX" }).click();
+  await page.getByRole("link", { name: /下載 GPX 檔案/ }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^TimelineRoute\d{6}\.gpx$/);
   const path = await download.path();
@@ -119,7 +119,7 @@ test("review queue can correct, exclude, and postpone unresolved gaps", async ({
     page.getByRole("heading", { name: "處理報告" }),
   ).toHaveCount(0);
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("link", { name: "下載 GPX" }).click();
+  await page.getByRole("link", { name: /下載 GPX 檔案/ }).click();
   const download = await downloadPromise;
   const path = await download.path();
   expect(path).not.toBeNull();

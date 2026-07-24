@@ -149,10 +149,11 @@ describe("TimelineWorkflow", () => {
       screen.queryByText(/部分路段未能加入 GPX/),
     ).not.toBeInTheDocument();
     expect(screen.getByText(/2.0 KB/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "下載 GPX" })).toHaveAttribute(
-      "download",
-      "TimelineRoute260723.gpx",
-    );
+    expect(
+      screen.getByRole("link", {
+        name: "下載 GPX 檔案：TimelineRoute260723.gpx",
+      }),
+    ).toHaveAttribute("download", "TimelineRoute260723.gpx");
   });
 
   it("shows each review card only its own repair failure", async () => {
@@ -229,7 +230,9 @@ describe("TimelineWorkflow", () => {
     await waitFor(() =>
       expect(screen.queryByText("取消處理")).not.toBeInTheDocument(),
     );
-    expect(screen.queryByRole("link", { name: "下載 GPX" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /下載 GPX 檔案/ }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "處理報告" }),
     ).not.toBeInTheDocument();

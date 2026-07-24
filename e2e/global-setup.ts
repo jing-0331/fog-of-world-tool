@@ -1,7 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 
-const SERVER_URL = "http://127.0.0.1:3000";
+const SERVER_PORT = process.env.PLAYWRIGHT_PORT ?? "3000";
+const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 
 export default async function globalSetup() {
   if (await serverIsReady()) {
@@ -16,7 +17,7 @@ export default async function globalSetup() {
     "bin",
     "next",
   );
-  const server = spawn(process.execPath, [nextBin, "start"], {
+  const server = spawn(process.execPath, [nextBin, "start", "-p", SERVER_PORT], {
     cwd: process.cwd(),
     detached: process.platform !== "win32",
     env: { ...process.env, NODE_ENV: "production" },

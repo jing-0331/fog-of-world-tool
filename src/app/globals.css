@@ -24,6 +24,7 @@
   --success-surface: #e6f3eb;
   --shadow-soft: 0 1rem 3rem rgb(23 76 66 / 8%);
   --shadow-raised: 0 1.25rem 3.5rem rgb(23 76 66 / 13%);
+  --workflow-section-gap: 1rem;
 }
 
 @theme inline {
@@ -668,14 +669,17 @@ h3 {
 }
 
 .workflow-shell {
+  display: grid;
   width: min(1040px, calc(100% - 2rem));
   min-height: calc(100dvh - 9rem);
+  gap: var(--workflow-section-gap);
+  align-content: start;
   padding: clamp(2.75rem, 6vw, 5rem) 0 6rem;
 }
 
 .workflow-heading {
   max-width: 50rem;
-  margin-bottom: 2.25rem;
+  margin: 0;
 }
 
 .workflow-heading h1 {
@@ -701,7 +705,7 @@ h3 {
 }
 
 .workflow-panel {
-  margin-top: 1rem;
+  margin: 0;
   padding: clamp(1.15rem, 3vw, 1.75rem);
 }
 
@@ -894,7 +898,12 @@ button:disabled,
 }
 
 .export-button {
-  margin-top: 1rem;
+  margin-top: 0;
+}
+
+.workflow-action-stack {
+  display: grid;
+  gap: var(--workflow-section-gap);
 }
 
 .candidate-list,
@@ -968,6 +977,144 @@ button:disabled,
 .badge-pill[data-tone="approximate"] {
   border-color: color-mix(in srgb, var(--warning) 34%, var(--line));
   background: var(--warning-surface);
+}
+
+.flight-route-source-list {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.flight-route-source-row {
+  display: grid;
+  grid-template-columns:
+    minmax(6.5rem, 0.7fr)
+    minmax(7rem, 0.8fr)
+    minmax(9rem, 1.2fr)
+    minmax(7rem, 1fr)
+    minmax(10rem, 1.2fr);
+  gap: 0.75rem 1rem;
+  align-items: start;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--surface);
+}
+
+.flight-route-source-field {
+  min-width: 0;
+}
+
+.flight-route-source-field[data-field="flight"] {
+  grid-column: 1;
+}
+
+.flight-route-source-field[data-field="date"] {
+  grid-column: 2;
+}
+
+.flight-route-source-field[data-field="source"] {
+  grid-column: 3;
+}
+
+.flight-route-source-field[data-field="kind"] {
+  grid-column: 4;
+}
+
+.flight-route-source-field[data-field="reference"] {
+  grid-column: 5;
+}
+
+.flight-route-source-label {
+  display: block;
+  margin-bottom: 0.15rem;
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 750;
+}
+
+.flight-route-source-value {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 0.9rem;
+}
+
+.download-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.download-file-details {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.download-file-details > div {
+  display: grid;
+  grid-template-columns: minmax(4rem, auto) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.download-file-details dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.download-file-details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 750;
+}
+
+.download-warning {
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 32%, var(--line));
+  border-radius: 0.7rem;
+  background: var(--warning-surface);
+  color: var(--warning);
+}
+
+.download-button {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.7rem;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 800;
+  text-decoration: none;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.download-button:hover {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  box-shadow: 0 0.65rem 1.5rem rgb(23 107 93 / 21%);
+}
+
+.download-button:focus-visible {
+  outline: 3px solid
+    color-mix(in srgb, var(--accent) 58%, var(--surface-strong));
+  outline-offset: 3px;
+}
+
+.download-button:active {
+  transform: translateY(1px) scale(0.99);
 }
 
 .status-error,
@@ -1180,6 +1327,14 @@ progress::-moz-progress-bar {
 
   .dialog-card .button-row button {
     width: 100%;
+  }
+
+  .flight-route-source-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .flight-route-source-field[data-field] {
+    grid-column: auto;
   }
 }
 
