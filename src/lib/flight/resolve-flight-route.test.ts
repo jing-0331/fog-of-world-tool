@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { ConfirmedFlight, GeoPoint } from "@/lib/domain/types";
 import { resolveFlightRoute } from "@/lib/flight/resolve-flight-route";
 import { distanceMeters } from "@/lib/geo/distance";
+import { buildGpx } from "@/lib/gpx/build-gpx";
+import { validateGpx } from "@/lib/gpx/validate-gpx";
 
 const now = new Date("2026-07-23T12:00:00Z");
 const route: GeoPoint[] = [
@@ -117,6 +119,31 @@ describe("resolveFlightRoute", () => {
       "flight-plan-database",
       "local-calculation",
     ]);
+  });
+
+  it("keeps a long linear airport fallback valid after GPX serialization", async () => {
+    const flight = recentFlight();
+    flight.departureAirport.point = { lat: 25.0797, lon: 121.2342 };
+    flight.arrivalAirport.point = { lat: 34.4347, lon: 135.244 };
+    const result = await resolveFlightRoute(
+      flight,
+      {
+        getOpenSkyTrack: vi.fn().mockResolvedValue(null),
+        resolveFiledPlan: vi.fn().mockResolvedValue(null),
+        findSimulatedPlan: vi.fn().mockResolvedValue(null),
+      },
+      now,
+    );
+
+    const validation = validateGpx(
+      buildGpx({
+        name: "Long direct fallback",
+        segments: [result.segment],
+      }),
+    );
+
+    expect(result.segment.provenance.kind).toBe("direct-line");
+    expect(validation).toEqual({ valid: true, errors: [] });
   });
 
   it("skips OpenSky outside the 30-day window", async () => {
