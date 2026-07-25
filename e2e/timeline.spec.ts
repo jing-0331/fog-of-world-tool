@@ -116,8 +116,16 @@ test("review queue can correct, exclude, and postpone unresolved gaps", async ({
   await page.getByRole("button", { name: "暫時略過" }).click();
   await expect(page.getByText(/1 \/ 1/)).toBeVisible();
   await expect(
+    page.getByRole("link", { name: /下載 GPX 檔案/ }),
+  ).toHaveCount(0);
+  await expect(
     page.getByRole("heading", { name: "處理報告" }),
   ).toHaveCount(0);
+
+  await page.getByRole("button", { name: "此路段不存在" }).click();
+  await expect(page.getByRole("progressbar")).toHaveAttribute("value", "3");
+  await expect(page.getByRole("progressbar")).toHaveAttribute("max", "3");
+
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("link", { name: /下載 GPX 檔案/ }).click();
   const download = await downloadPromise;

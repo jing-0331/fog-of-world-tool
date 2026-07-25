@@ -20,7 +20,6 @@ const item: UnresolvedReviewItem = {
     elapsedMilliseconds: 5_400_000,
   },
   originalMode: "driving",
-  startLocation: "合成起點",
   attempts: [
     {
       source: "openrouteservice",
@@ -41,24 +40,16 @@ const item: UnresolvedReviewItem = {
 };
 
 describe("UnresolvedReview", () => {
-  it("appears only after automatic processing and shows complete review evidence", () => {
+  it("shows complete review evidence", () => {
     const props = baseProps();
-    const { rerender } = render(
-      <UnresolvedReview {...props} processing items={[item]} />,
-    );
-
-    expect(
-      screen.queryByRole("heading", { name: "待人工確認路段" }),
-    ).not.toBeInTheDocument();
-
-    rerender(<UnresolvedReview {...props} processing={false} items={[item]} />);
+    render(<UnresolvedReview {...props} items={[item]} />);
 
     expect(
       screen.getByRole("heading", { name: "待人工確認路段" }),
     ).toBeInTheDocument();
     expect(screen.getByText(/2026-01-01 08:00/)).toBeInTheDocument();
     expect(screen.getByText(/2026-01-01 09:30/)).toBeInTheDocument();
-    expect(screen.getByText("合成起點")).toBeInTheDocument();
+    expect(screen.getByText("25.10000, 121.50000")).toBeInTheDocument();
     expect(screen.getByText("25.20000, 121.60000")).toBeInTheDocument();
     expect(screen.getByText(/15.4 公里/)).toBeInTheDocument();
     expect(screen.getByText(/1 小時 30 分鐘/)).toBeInTheDocument();
@@ -71,7 +62,7 @@ describe("UnresolvedReview", () => {
   it("reroutes one card and records user-corrected provenance", async () => {
     const user = userEvent.setup();
     const correctionStore = store();
-    const onDecision = vi.fn();
+    const onResolved = vi.fn();
     const retry = vi.fn().mockResolvedValue({
       points: [
         { lat: 25.1, lon: 121.5 },
@@ -88,11 +79,10 @@ describe("UnresolvedReview", () => {
     });
     render(
       <UnresolvedReview
-        processing={false}
         items={[item]}
         correctionStore={correctionStore}
         retry={retry}
-        onDecision={onDecision}
+        onResolved={onResolved}
       />,
     );
 
@@ -119,13 +109,7 @@ describe("UnresolvedReview", () => {
         }),
       ),
     );
-    expect(onDecision).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "reroute",
-        segmentId: "gap-1",
-      }),
-    );
-    expect(screen.getByText("所有待確認路段都已處理。")).toBeInTheDocument();
+    expect(onResolved).toHaveBeenCalledWith("gap-1");
   });
 
   it("stores intentional exclusion, while skip leaves the item unresolved", async () => {
@@ -181,10 +165,10 @@ function baseProps(
   overrides: Partial<React.ComponentProps<typeof UnresolvedReview>> = {},
 ): React.ComponentProps<typeof UnresolvedReview> {
   return {
-    processing: false,
     items: [],
     correctionStore: store(),
     retry: vi.fn(),
+    onResolved: vi.fn(),
     ...overrides,
   };
 }

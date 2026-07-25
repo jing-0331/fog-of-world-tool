@@ -104,43 +104,77 @@ export function TimelineWorkflow({
     setDownload(null);
   };
 
-  const runProcessing = async () => {
+  const runProcessing = async (finalizing = false) => {
     if (!parseResult || !selection) {
       return;
     }
-    clearDownload();
-    setReviewItems([]);
-    setProcessing(true);
-    setProgress({
-      stage: "classification",
-      current: 0,
-      total: 1,
-      message: "準備分類時間軸路段。",
-    });
-    const nextController = new AbortController();
-    setController(nextController);
-
     const selectedSegments = selectTimelineDateRange(
       parseResult.segments,
       selection,
     );
     const legs = buildTimelineLegs(selectedSegments);
+    const total = legs.reduce((sum, leg) => sum + leg.gaps.length, 0);
     const invalidData = parserInvalidItems(parseResult);
+    clearDownload();
+    if (finalizing) {
+      setProgress((current) => ({
+        current: current?.total ?? total,
+        total: current?.total ?? total,
+        message: "所有路段已完成，正在建立 GPX。",
+      }));
+    } else {
+      setReviewItems([]);
+      setProgress({
+        current: 0,
+        total,
+        message: `已完成 0/${total}`,
+      });
+    }
+    setProcessing(true);
+    const nextController = new AbortController();
+    setController(nextController);
+
     try {
       const nextResult = await processFn(legs, activeServices.dependencies, {
         signal: nextController.signal,
-        onProgress: setProgress,
+        ...(finalizing ? {} : { onProgress: setProgress }),
         invalidData,
         name: "Google Timeline 路線",
       });
-      setReviewItems(buildReviewItems(legs, nextResult));
-      if (nextResult.downloadable && nextResult.gpx) {
+      const nextReviewItems = buildReviewItems(legs, nextResult);
+      setReviewItems(nextReviewItems);
+      if (
+        nextReviewItems.length === 0 &&
+        nextResult.downloadable &&
+        nextResult.gpx
+      ) {
         setDownload(createDownloadFn(nextResult.gpx, "timeline"));
       }
     } finally {
       setProcessing(false);
-      setProgress(null);
       setController(null);
+    }
+  };
+
+  const handleReviewResolved = (segmentId: string) => {
+    const remainingItems = reviewItems.filter(
+      (item) => item.gap.id !== segmentId,
+    );
+    setReviewItems(remainingItems);
+    setProgress((current) =>
+      current
+        ? {
+            ...current,
+            current: Math.min(current.total, current.current + 1),
+            message: `已完成 ${Math.min(
+              current.total,
+              current.current + 1,
+            )}/${current.total}`,
+          }
+        : current,
+    );
+    if (remainingItems.length === 0) {
+      void runProcessing(true);
     }
   };
 
@@ -160,12 +194,14 @@ export function TimelineWorkflow({
           clearDownload();
           setParseResult(parsed);
           setSelection(null);
+          setProgress(null);
           setReviewItems([]);
         }}
         onReset={() => {
           clearDownload();
           setParseResult(null);
           setSelection(null);
+          setProgress(null);
           setReviewItems([]);
         }}
       />
@@ -178,7 +214,7 @@ export function TimelineWorkflow({
         />
       ) : null}
 
-      {selection && !processing ? (
+      {selection && !processing && reviewItems.length === 0 && !download ? (
         <button
           type="button"
           className="primary-button export-button"
@@ -188,34 +224,36 @@ export function TimelineWorkflow({
         </button>
       ) : null}
 
-      {processing && progress ? (
+      {progress ? (
         <div className="workflow-action-stack">
           <ProgressPanel
             title="處理 Google 時間軸"
             message={progress.message}
             current={progress.current}
             total={progress.total}
+            busy={processing}
           />
-          <button
-            type="button"
-            className="danger-button"
-            onClick={() => controller?.abort()}
-          >
-            取消處理
-          </button>
+          {processing ? (
+            <button
+              type="button"
+              className="danger-button"
+              onClick={() => controller?.abort()}
+            >
+              取消處理
+            </button>
+          ) : null}
         </div>
       ) : null}
 
-      {reviewItems.length > 0 ? (
+      {!processing && reviewItems.length > 0 ? (
         <div className="workflow-panel">
           <UnresolvedReview
-            processing={processing}
             items={reviewItems}
             correctionStore={activeServices.correctionStore}
             retry={(item, mode) =>
               requestRepair(item.gap, mode)
             }
-            onDecision={() => void runProcessing()}
+            onResolved={handleReviewResolved}
           />
         </div>
       ) : null}

@@ -53,6 +53,70 @@ describe("processTimeline", () => {
     ]);
   });
 
+  it("advances progress only after a route finishes successfully", async () => {
+    const updates: Array<{ current: number; total: number }> = [];
+    let finishRepair!: () => void;
+    const routeGap = gap("pending", 0, 10, 0, 0.1);
+    const processing = processTimeline(
+      [leg({ gaps: [routeGap] })],
+      deps({
+        repair: vi.fn(
+          () =>
+            new Promise<ReturnType<typeof repaired>>((resolve) => {
+              finishRepair = () => resolve(repaired(routeGap));
+            }),
+        ),
+      }),
+      {
+        onProgress: ({ current, total }) => {
+          updates.push({ current, total });
+        },
+      },
+    );
+
+    await vi.waitFor(() => expect(finishRepair).toBeTypeOf("function"));
+    expect(updates.at(-1)).toEqual({ current: 0, total: 1 });
+
+    finishRepair();
+    await processing;
+
+    expect(updates.at(-1)).toEqual({ current: 1, total: 1 });
+  });
+
+  it("does not count failed routes and keeps one total through finalization", async () => {
+    const updates: Array<{ current: number; total: number }> = [];
+    const first = gap("success-a", 0, 10, 0, 0.1);
+    const failed = gap("failed", 20, 30, 0.1, 0.2);
+    const last = gap("success-b", 40, 50, 0.2, 0.3);
+
+    await processTimeline(
+      [leg({ gaps: [first, failed, last] })],
+      deps({
+        repair: vi.fn(async (routeGap) => {
+          if (routeGap.id === failed.id) {
+            throw noRoute("no route");
+          }
+          return repaired(routeGap);
+        }),
+      }),
+      {
+        onProgress: ({ current, total }) => {
+          updates.push({ current, total });
+        },
+      },
+    );
+
+    expect(updates[0]).toEqual({ current: 0, total: 3 });
+    expect(updates.every(({ total }) => total === 3)).toBe(true);
+    expect(updates.at(-1)).toEqual({ current: 2, total: 3 });
+    expect(
+      updates.every(
+        ({ current }, index) =>
+          index === 0 || current >= updates[index - 1].current,
+      ),
+    ).toBe(true);
+  });
+
   it("retries a contiguous same-mode group as one route and replaces its partial repairs", async () => {
     const first = gap("gap-a", 0, 10, 0, 0.1);
     const middle = gap("gap-b", 10, 20, 0.1, 0.2);

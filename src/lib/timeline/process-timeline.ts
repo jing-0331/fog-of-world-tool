@@ -46,14 +46,7 @@ export interface TimelineProcessingDependencies {
   ) => Promise<RepairRouteResult>;
 }
 
-export type TimelineProgressStage =
-  | "classification"
-  | "repair"
-  | "gpx"
-  | "validation";
-
 export interface TimelineProgress {
-  stage: TimelineProgressStage;
   current: number;
   total: number;
   message: string;
@@ -98,6 +91,7 @@ export async function processTimeline(
   });
   const segments: RouteSegment[] = [];
   const processedGaps: ProcessedGap[] = [];
+  const completedGapIds = new Set<string>();
   const gaps = legs
     .flatMap((leg) => leg.gaps.map((gap) => ({ leg, gap })))
     .sort(
@@ -109,12 +103,14 @@ export async function processTimeline(
   if (options.signal?.aborted) {
     return canceledResult(report);
   }
-  options.onProgress?.({
-    stage: "classification",
-    current: legs.length,
-    total: legs.length,
-    message: `已分類 ${legs.length} 個時間軸路段。`,
-  });
+  const reportProgress = (message: string) => {
+    options.onProgress?.({
+      current: completedGapIds.size,
+      total: gaps.length,
+      message,
+    });
+  };
+  reportProgress(`已完成 0/${gaps.length}`);
 
   for (const leg of [...legs].sort(compareLegs)) {
     if (leg.classification === "explicit-flight") {
@@ -146,12 +142,7 @@ export async function processTimeline(
     let groupable = false;
     let providerRepairStarted = false;
     let providerRepairCompleted = false;
-    options.onProgress?.({
-      stage: "repair",
-      current: index + 1,
-      total: gaps.length,
-      message: `修補路段 ${index + 1}/${gaps.length}`,
-    });
+    reportProgress(`正在處理路段 ${index + 1}/${gaps.length}`);
 
     try {
       const correction = await dependencies.getCorrection(gap);
@@ -171,6 +162,8 @@ export async function processTimeline(
           groupable: false,
           repairFailed: false,
         });
+        completedGapIds.add(gap.id);
+        reportProgress(`已完成 ${completedGapIds.size}/${gaps.length}`);
         continue;
       }
 
@@ -191,6 +184,9 @@ export async function processTimeline(
           groupable: false,
           repairFailed: false,
         });
+        reportProgress(
+          `路段 ${index + 1} 需要人工確認；已完成 ${completedGapIds.size}/${gaps.length}`,
+        );
         continue;
       }
 
@@ -271,6 +267,8 @@ export async function processTimeline(
         repairFailed: false,
         segmentId: segment.id,
       });
+      completedGapIds.add(gap.id);
+      reportProgress(`已完成 ${completedGapIds.size}/${gaps.length}`);
     } catch (error) {
       if (isAbortError(error) || options.signal?.aborted) {
         return canceledResult(report);
@@ -318,6 +316,9 @@ export async function processTimeline(
           groupable && providerRepairStarted && !providerRepairCompleted,
         repairFailed: providerRepairStarted && !providerRepairCompleted,
       });
+      reportProgress(
+        `路段 ${index + 1} 需要人工確認；已完成 ${completedGapIds.size}/${gaps.length}`,
+      );
     }
   }
 
@@ -326,6 +327,10 @@ export async function processTimeline(
     segments,
     report,
     dependencies,
+    (resolvedGapIds) => {
+      resolvedGapIds.forEach((gapId) => completedGapIds.add(gapId));
+      reportProgress(`已完成 ${completedGapIds.size}/${gaps.length}`);
+    },
     options.signal,
   );
   if (mergedRetry === "canceled") {
@@ -349,9 +354,8 @@ export async function processTimeline(
   }
 
   options.onProgress?.({
-    stage: "gpx",
-    current: 1,
-    total: 1,
+    current: completedGapIds.size,
+    total: gaps.length,
     message: "建立 GPX。",
   });
   const gpx = buildGpx({
@@ -364,9 +368,8 @@ export async function processTimeline(
     },
   });
   options.onProgress?.({
-    stage: "validation",
-    current: 1,
-    total: 1,
+    current: completedGapIds.size,
+    total: gaps.length,
     message: "驗證 GPX。",
   });
   const validation = validateGpx(gpx);
@@ -404,6 +407,7 @@ async function retryContiguousGapGroups(
   segments: RouteSegment[],
   report: ProcessingReport,
   dependencies: TimelineProcessingDependencies,
+  onResolved: (gapIds: string[]) => void,
   signal?: AbortSignal,
 ): Promise<"completed" | "canceled"> {
   for (const group of contiguousGapGroups(processedGaps)) {
@@ -512,6 +516,7 @@ async function retryContiguousGapGroups(
         message: "已使用整組端點完成合併修補。",
         source: mergedSegment.provenance.source,
       });
+      onResolved(group.map((item) => item.gap.id));
     } catch (error) {
       if (isAbortError(error) || signal?.aborted) {
         return "canceled";

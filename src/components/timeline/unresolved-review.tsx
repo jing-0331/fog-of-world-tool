@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { UnresolvedCard } from "@/components/timeline/unresolved-card";
 import type { CorrectionStore } from "@/lib/client/correction-store";
@@ -14,73 +14,40 @@ import type { TimelineRepairGap } from "@/lib/timeline/build-legs";
 export interface UnresolvedReviewItem {
   gap: TimelineRepairGap;
   originalMode: TransportMode;
-  startLocation?: string;
-  endLocation?: string;
   attempts: RepairAttempt[];
-  warning?: "probable-flight" | "position-anomaly";
+  warning?: "probable-flight";
 }
 
-export type ReviewDecision =
-  | {
-      action: "exclude";
-      segmentId: string;
-    }
-  | {
-      action: "reroute";
-      segmentId: string;
-      originalMode: TransportMode;
-      correctedMode: TransportMode;
-      route: RepairRouteResult;
-    };
-
 interface UnresolvedReviewProps {
-  processing: boolean;
   items: UnresolvedReviewItem[];
   correctionStore: CorrectionStore;
   retry: (
     item: UnresolvedReviewItem,
     mode: TransportMode,
   ) => Promise<RepairRouteResult>;
-  onDecision?: (decision: ReviewDecision) => void;
+  onResolved: (segmentId: string) => void;
 }
 
 export function UnresolvedReview({
-  processing,
   items,
   correctionStore,
   retry,
-  onDecision,
+  onResolved,
 }: UnresolvedReviewProps) {
-  const [resolvedIds, setResolvedIds] = useState<Set<string>>(() => new Set());
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedMode, setSelectedMode] = useState<TransportMode | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const unresolvedItems = useMemo(
-    () => items.filter((item) => !resolvedIds.has(item.gap.id)),
-    [items, resolvedIds],
-  );
 
-  if (processing) {
+  if (items.length === 0) {
     return null;
   }
-  if (unresolvedItems.length === 0) {
-    return (
-      <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-        <h2 className="font-semibold text-emerald-900">待人工確認路段</h2>
-        <p className="mt-2 text-sm text-emerald-800">
-          所有待確認路段都已處理。
-        </p>
-      </section>
-    );
-  }
 
-  const safeIndex = Math.min(currentIndex, unresolvedItems.length - 1);
-  const item = unresolvedItems[safeIndex];
+  const safeIndex = Math.min(currentIndex, items.length - 1);
+  const item = items[safeIndex];
   const mode = selectedMode ?? item.originalMode;
 
   const resolveCurrent = () => {
-    setResolvedIds((current) => new Set(current).add(item.gap.id));
     setCurrentIndex(0);
     setSelectedMode(null);
     setError(null);
@@ -109,13 +76,7 @@ export function UnresolvedReview({
           provenance: correctedRoute.provenance,
         },
       });
-      onDecision?.({
-        action: "reroute",
-        segmentId: item.gap.id,
-        originalMode: item.originalMode,
-        correctedMode: mode,
-        route: correctedRoute,
-      });
+      onResolved(item.gap.id);
       resolveCurrent();
     } catch (retryError) {
       setError(
@@ -136,7 +97,7 @@ export function UnresolvedReview({
         segmentId: item.gap.id,
         originalMode: item.originalMode,
       });
-      onDecision?.({ action: "exclude", segmentId: item.gap.id });
+      onResolved(item.gap.id);
       resolveCurrent();
     } catch (storeError) {
       setError(
@@ -155,18 +116,18 @@ export function UnresolvedReview({
             待人工確認路段
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            {safeIndex + 1} / {unresolvedItems.length}
+            {safeIndex + 1} / {items.length}
           </p>
         </div>
-        {unresolvedItems.length > 1 ? (
+        {items.length > 1 ? (
           <div className="flex gap-2">
             <button
               type="button"
               className="secondary-button compact-button rounded-full border border-slate-300 px-3 py-1 text-sm"
               onClick={() =>
                 setCurrentIndex(
-                  (safeIndex - 1 + unresolvedItems.length) %
-                    unresolvedItems.length,
+                  (safeIndex - 1 + items.length) %
+                    items.length,
                 )
               }
             >
@@ -176,7 +137,7 @@ export function UnresolvedReview({
               type="button"
               className="secondary-button compact-button rounded-full border border-slate-300 px-3 py-1 text-sm"
               onClick={() =>
-                setCurrentIndex((safeIndex + 1) % unresolvedItems.length)
+                setCurrentIndex((safeIndex + 1) % items.length)
               }
             >
               下一段
@@ -200,8 +161,8 @@ export function UnresolvedReview({
         onSkip={() => {
           setError(null);
           setSelectedMode(null);
-          if (unresolvedItems.length > 1) {
-            setCurrentIndex((safeIndex + 1) % unresolvedItems.length);
+          if (items.length > 1) {
+            setCurrentIndex((safeIndex + 1) % items.length);
           }
         }}
       />
