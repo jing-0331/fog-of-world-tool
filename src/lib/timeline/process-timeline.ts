@@ -24,6 +24,7 @@ import {
   createProcessingReport,
   reportHasPartialResults,
 } from "@/lib/timeline/report";
+import { createTdxRouteReuse } from "@/lib/timeline/tdx-route-reuse";
 
 export interface TimelineProcessingDependencies {
   getCorrection: (
@@ -103,6 +104,7 @@ export async function processTimeline(
   const segments: RouteSegment[] = [];
   const processedGaps: ProcessedGap[] = [];
   const completedGapIds = new Set<string>();
+  const tdxRouteReuse = createTdxRouteReuse();
   const gaps = legs
     .flatMap((leg) => leg.gaps.map((gap) => ({ leg, gap })))
     .sort(
@@ -220,16 +222,11 @@ export async function processTimeline(
         correction?.action === "reroute"
           ? correction.normalizedRoute
           : undefined;
-      let latestCachedRoute = cachedRoute;
-      if (latestCachedRoute === null && lane === "tdx") {
-        latestCachedRoute = await dependencies.getCachedRoute(
-          gap,
-          effectiveMode,
-        );
-        if (options.signal?.aborted) {
-          return "canceled";
-        }
-      }
+      const latestCachedRoute =
+        cachedRoute ??
+        (lane === "tdx"
+          ? tdxRouteReuse.get(gap, effectiveMode)
+          : null);
       let route: CachedRoute | RepairRouteResult;
       let attempts: RepairRouteResult["attempts"] = [];
       if (latestCachedRoute) {
@@ -249,10 +246,14 @@ export async function processTimeline(
         return "canceled";
       }
       if (!savedRoute && latestCachedRoute === null) {
-        await dependencies.putCachedRoute(gap, effectiveMode, {
+        const routeToCache = {
           points: route.points,
           provenance: route.provenance,
-        });
+        };
+        await dependencies.putCachedRoute(gap, effectiveMode, routeToCache);
+        if (lane === "tdx" && route.provenance.source === "tdx") {
+          tdxRouteReuse.record(gap, effectiveMode, routeToCache);
+        }
       }
       if (options.signal?.aborted) {
         return "canceled";

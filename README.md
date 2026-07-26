@@ -88,7 +88,7 @@ TRANSITOUS_CONTACT_URL=https://github.com/YOUR_ACCOUNT/YOUR_REPOSITORY
 - 原始 Timeline JSON、Wi-Fi 掃描、使用者 profile 欄位及完整檔案內容不會 POST 到本工具 server 或任何 provider。
 - 原始檔不會寫入 server 檔案系統；解析與日期篩選在瀏覽器內完成。
 - 只有需要補路的起點、終點、時間與交通模式會送到同源 `/api/routes/repair`，再由 server adapter 呼叫 OpenRouteService、TDX 或 Transitous。這些 provider 需要端點座標才能計算路線。
-- 人工修正與路線快取只存在瀏覽器 IndexedDB。每次送出 TDX 查詢前會再次檢查已完成的同向起訖點與交通模式；命中時直接重用路徑幾何並套用本路段時間，不會消耗 TDX 請求額度。
+- 人工修正與路線快取只存在瀏覽器 IndexedDB。同次處理只針對 TDX 路線進行重複審查：第一筆成功寫入後，同交通模式且同向起訖點各在 100 公尺內的後續候選會直接重用已完成的路徑幾何並套用本路段時間，不會再次查詢 TDX，也不會消耗請求額度。重用規則以合成測試資料驗證，不會在正式處理時額外送出測試請求。
 - 專案沒有地圖、分析追蹤或遙測。
 
 本儲存庫只使用手寫、匿名、合成的 Timeline fixtures。不得把個人 Timeline 匯出檔、真實座標、私人日期區間、下載路徑或驗收輸出提交至 Git。

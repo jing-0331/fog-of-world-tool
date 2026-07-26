@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { CachedRoute } from "@/lib/client/route-cache";
 import { distanceMeters } from "@/lib/geo/distance";
 import {
   processTimeline,
@@ -561,49 +560,149 @@ describe("processTimeline", () => {
     expect(result.segments[0].provenance.source).toBe("openrouteservice");
   });
 
-  it("reuses an identical TDX route completed earlier in the same run", async () => {
+  it("reuses the first completed matching TDX route immediately", async () => {
     const first = taiwanGap("tdx-first", 0, 10);
-    const duplicate = taiwanGap("tdx-duplicate", 20, 30);
-    let storedRoute: CachedRoute | null = null;
-    const getCachedRoute = vi.fn(async () => storedRoute);
-    const putCachedRoute = vi.fn(
-      async (
-        _gap: TimelineRepairGap,
-        _mode: TimelineRepairGap["mode"],
-        route: CachedRoute,
-      ) => {
-        storedRoute = route;
+    const second = taiwanGap("tdx-second", 20, 30);
+    const third = taiwanGap("tdx-third", 40, 50);
+    const reusable = taiwanGap("tdx-reusable", 60, 70);
+    const sharedRoute = [
+      { lat: 25.0478, lon: 121.5319 },
+      { lat: 25.041, lon: 121.548 },
+      { lat: 25.033, lon: 121.5654 },
+    ];
+    const repair = vi.fn(async (routeGap: TimelineRepairGap) => ({
+      ...repaired(routeGap),
+      points: sharedRoute,
+      provenance: {
+        ...repaired(routeGap).provenance,
+        kind: "transit-route" as const,
+        source: "tdx" as const,
+        referenceDate: "2026-07-26",
       },
-    );
-    const repair = vi.fn(async (routeGap: TimelineRepairGap) =>
-      repaired(routeGap),
-    );
+    }));
 
     const result = await processTimeline(
       [
         leg({
           mode: "bus",
           startTime: first.startTime,
-          endTime: duplicate.endTime,
-          gaps: [first, duplicate],
+          endTime: reusable.endTime,
+          gaps: [first, second, third, reusable],
         }),
       ],
-      deps({ getCachedRoute, putCachedRoute, repair }),
+      deps({ repair }),
     );
 
     expect(repair).toHaveBeenCalledTimes(1);
     expect(repair).toHaveBeenCalledWith(
-      expect.objectContaining({ id: first.id, mode: "bus" }),
+      expect.objectContaining({ id: first.id }),
     );
-    expect(putCachedRoute).toHaveBeenCalledTimes(1);
     expect(result.segments.map(({ id }) => id)).toEqual([
       `${first.id}:repair`,
-      `${duplicate.id}:repair`,
+      `${second.id}:repair`,
+      `${third.id}:repair`,
+      `${reusable.id}:repair`,
     ]);
-    expect(result.segments[1].points[0].time).toBe(duplicate.startTime);
-    expect(result.segments[1].points.at(-1)?.time).toBe(
-      duplicate.endTime,
+    expect(result.segments[3].points[0].time).toBe(reusable.startTime);
+    expect(result.segments[3].points.at(-1)?.time).toBe(
+      reusable.endTime,
     );
+  });
+
+  it("reuses the first completed route for nearby TDX endpoints", async () => {
+    const gaps = [
+      shiftedTaiwanGap("tdx-near-a", 0, 10, 0),
+      shiftedTaiwanGap("tdx-near-b", 20, 30, 0.00003),
+      shiftedTaiwanGap("tdx-near-c", 40, 50, -0.00004),
+      shiftedTaiwanGap("tdx-near-reusable", 60, 70, 0.00005),
+    ];
+    const repair = vi.fn(async (routeGap: TimelineRepairGap) => ({
+      ...repaired(routeGap),
+      points: [
+        { lat: 25.0478, lon: 121.5319 },
+        { lat: 25.041, lon: 121.548 },
+        { lat: 25.033, lon: 121.5654 },
+      ],
+      provenance: {
+        ...repaired(routeGap).provenance,
+        kind: "transit-route" as const,
+        source: "tdx" as const,
+        referenceDate: "2026-07-26",
+      },
+    }));
+
+    await processTimeline(
+      [
+        leg({
+          mode: "bus",
+          startTime: gaps[0].startTime,
+          endTime: gaps.at(-1)!.endTime,
+          gaps,
+        }),
+      ],
+      deps({ repair }),
+    );
+
+    expect(repair).toHaveBeenCalledTimes(1);
+    expect(repair).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "tdx-near-a" }),
+    );
+  });
+
+  it("does not reuse TDX routes outside the endpoint tolerance", async () => {
+    const first = taiwanGap("tdx-route-a", 0, 10, 0);
+    const second = taiwanGap("tdx-route-b", 20, 30, 1);
+    const repair = vi.fn(async (routeGap: TimelineRepairGap) => ({
+      ...repaired(routeGap),
+      provenance: {
+        ...repaired(routeGap).provenance,
+        kind: "transit-route" as const,
+        source: "tdx" as const,
+        referenceDate: "2026-07-26",
+      },
+    }));
+
+    await processTimeline(
+      [
+        leg({
+          mode: "bus",
+          startTime: first.startTime,
+          endTime: second.endTime,
+          gaps: [first, second],
+        }),
+      ],
+      deps({ repair }),
+    );
+
+    expect(repair).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not reuse a TDX route in the reverse direction", async () => {
+    const forward = taiwanGap("tdx-forward", 0, 10);
+    const reverse = reverseTdxGap(forward, "tdx-reverse", 20, 30);
+    const repair = vi.fn(async (routeGap: TimelineRepairGap) => ({
+      ...repaired(routeGap),
+      provenance: {
+        ...repaired(routeGap).provenance,
+        kind: "transit-route" as const,
+        source: "tdx" as const,
+        referenceDate: "2026-07-26",
+      },
+    }));
+
+    await processTimeline(
+      [
+        leg({
+          mode: "bus",
+          startTime: forward.startTime,
+          endTime: reverse.endTime,
+          gaps: [forward, reverse],
+        }),
+      ],
+      deps({ repair }),
+    );
+
+    expect(repair).toHaveBeenCalledTimes(2);
   });
 
   it("applies a saved normalized user correction before cache or providers", async () => {
@@ -959,6 +1058,58 @@ function taiwanGap(
   return {
     id,
     mode: "bus",
+    startPoint,
+    endPoint,
+    startTime: startPoint.time,
+    endTime: endPoint.time,
+    distanceMeters: distanceMeters(startPoint, endPoint),
+    elapsedMilliseconds:
+      Date.parse(endPoint.time) - Date.parse(startPoint.time),
+  };
+}
+
+function shiftedTaiwanGap(
+  id: string,
+  startMinute: number,
+  endMinute: number,
+  offset: number,
+): TimelineRepairGap {
+  const routeGap = taiwanGap(id, startMinute, endMinute);
+  const startPoint = {
+    ...routeGap.startPoint,
+    lat: routeGap.startPoint.lat + offset,
+    lon: routeGap.startPoint.lon + offset,
+  };
+  const endPoint = {
+    ...routeGap.endPoint,
+    lat: routeGap.endPoint.lat + offset,
+    lon: routeGap.endPoint.lon + offset,
+  };
+  return {
+    ...routeGap,
+    startPoint,
+    endPoint,
+    distanceMeters: distanceMeters(startPoint, endPoint),
+  };
+}
+
+function reverseTdxGap(
+  source: TimelineRepairGap,
+  id: string,
+  startMinute: number,
+  endMinute: number,
+): TimelineRepairGap {
+  const startPoint = {
+    ...source.endPoint,
+    time: at(startMinute),
+  };
+  const endPoint = {
+    ...source.startPoint,
+    time: at(endMinute),
+  };
+  return {
+    ...source,
+    id,
     startPoint,
     endPoint,
     startTime: startPoint.time,
