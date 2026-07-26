@@ -5,7 +5,7 @@ import { decodeFlexiblePolyline } from "@/lib/geo/flexible-polyline";
 import {
   createSlidingWindowRateLimiter,
   type RequestRateLimiter,
-} from "@/lib/providers/tdx/rate-limiter";
+} from "@/lib/server/sliding-window-rate-limiter";
 import { fetchWithRetry } from "@/lib/server/fetch-with-retry";
 import { ProviderError } from "@/lib/server/provider-error";
 
