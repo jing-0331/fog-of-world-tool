@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { z } from "zod";
 
 import { DateRangeSelector } from "@/components/timeline/date-range-selector";
 import { DownloadCard } from "@/components/download-card";
@@ -39,8 +40,28 @@ import {
   type TimelineDateSelection,
 } from "@/lib/timeline/date-range";
 import type { TimelineParseResult } from "@/lib/timeline/schema";
+import { ProviderError } from "@/lib/server/provider-error";
 
 const ROUTE_ALGORITHM_VERSION = "timeline-route-v1";
+const repairErrorSchema = z.object({
+  error: z.object({
+    code: z.enum([
+      "no_data",
+      "rate_limited",
+      "auth",
+      "quota",
+      "network",
+      "provider_unavailable",
+    ]),
+    message: z.string().min(1),
+    retryable: z.boolean(),
+  }),
+});
+const repairSuccessSchema = z.object({
+  data: z.custom<RepairRouteResult>(
+    (value) => value !== null && typeof value === "object",
+  ),
+});
 
 export interface TimelineWorkflowServices {
   dependencies: TimelineProcessingDependencies;
@@ -338,7 +359,7 @@ function cacheKeyInput(
   };
 }
 
-async function requestRepair(
+export async function requestRepair(
   gap: {
     id: string;
     startPoint: { lat: number; lon: number };
@@ -355,14 +376,38 @@ async function requestRepair(
     body: JSON.stringify({ ...gap, mode }),
     signal,
   });
-  const body = (await response.json()) as {
-    data?: RepairRouteResult;
-    error?: { message: string };
-  };
-  if (!response.ok || !body.data) {
-    throw new Error(body.error?.message ?? "所有路線來源皆失敗。");
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw unavailableRepairError(response);
   }
-  return body.data;
+
+  if (!response.ok) {
+    const parsed = repairErrorSchema.safeParse(body);
+    if (parsed.success) {
+      throw new ProviderError({
+        ...parsed.data.error,
+        status: response.status,
+      });
+    }
+    throw unavailableRepairError(response);
+  }
+
+  const parsed = repairSuccessSchema.safeParse(body);
+  if (!parsed.success) {
+    throw unavailableRepairError(response);
+  }
+  return parsed.data.data;
+}
+
+function unavailableRepairError(response: Response): ProviderError {
+  return new ProviderError({
+    code: "provider_unavailable",
+    message: "Provider is unavailable.",
+    retryable: response.ok || response.status >= 500,
+    status: response.status,
+  });
 }
 
 function parserInvalidItems(
