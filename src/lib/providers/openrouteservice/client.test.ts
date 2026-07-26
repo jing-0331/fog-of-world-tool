@@ -77,4 +77,53 @@ describe("OpenRouteService client", () => {
     expect(url.searchParams.get("point.lat")).toBe("25");
     expect(url.searchParams.get("point.lon")).toBe("121.5");
   });
+
+  it("counts each Directions retry but does not limit reverse geocoding", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 429,
+          headers: { "Retry-After": "0" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          features: [
+            {
+              geometry: {
+                type: "LineString",
+                coordinates: [
+                  [121.5, 25],
+                  [121.6, 25.1],
+                ],
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          features: [{ properties: { label: "測試地點" } }],
+        }),
+      );
+    const requestLimiter = {
+      acquire: vi.fn().mockResolvedValue(undefined),
+    };
+    const client = createOpenRouteServiceClient({
+      apiKey: "ors-secret",
+      fetchFn,
+      requestLimiter,
+    });
+
+    await client.route({
+      profile: "foot-walking",
+      startPoint: { lat: 25, lon: 121.5 },
+      endPoint: { lat: 25.1, lon: 121.6 },
+    });
+    await client.reverseGeocode({ lat: 25, lon: 121.5 });
+
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    expect(requestLimiter.acquire).toHaveBeenCalledTimes(2);
+  });
 });

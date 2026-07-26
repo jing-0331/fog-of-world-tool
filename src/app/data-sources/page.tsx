@@ -20,7 +20,7 @@ const sources = [
     name: "OpenRouteService",
     href: "https://openrouteservice.org/dev/",
     description:
-      "地面路線修復。© openrouteservice.org by HeiGIT；路圖資料 © OpenStreetMap contributors。",
+      "地面路線修復。程式會限制任一滾動 60 秒最多 40 次 Directions 嘗試；每日 2,000 次只作文件提醒，不在程式內拒絕批次。© openrouteservice.org by HeiGIT；路圖資料 © OpenStreetMap contributors。",
   },
   {
     name: "OpenStreetMap",
@@ -31,13 +31,13 @@ const sources = [
     name: "TDX",
     href: "https://tdx.transportdata.tw/api-service/swagger/maas/4513f9d6-caae-4cf7-a50c-e7887bec804e",
     description:
-      "交通部運輸資料流通服務；用於台灣境內的大眾運輸路線規劃，需以會員 API 金鑰存取。免付費方案每分鐘最多 5 次請求，本工具會將 MaaS 請求與自動重試排入共用佇列。",
+      "交通部運輸資料流通服務；用於台灣境內的大眾運輸路線規劃，需以會員 API 金鑰存取。本工具預設每 60 秒 5 次 MaaS 嘗試，可依實際訂閱方案設定；官方帳戶頁顯示的方案限制為準。",
   },
   {
     name: "Transitous",
     href: "https://transitous.org/api/",
     description:
-      "以 best-effort 方式提供目前可用的大眾運輸路網；公開服務以自由／開源、非營利用途為主，大量使用前請聯絡營運者。",
+      "以 best-effort 方式提供目前可用的大眾運輸路網。官方沒有公開固定的每分鐘或每日額度；本工具採單線逐筆，並以每次 HTTP 嘗試至少間隔 5 秒作為禮貌性保守值，這不是官方額度。大量或昂貴 routing 前請聯絡營運者。",
   },
   {
     name: "Google Timeline 匯出說明",

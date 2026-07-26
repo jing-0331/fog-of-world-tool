@@ -1,34 +1,34 @@
 import { z } from "zod";
 
-import type { GeoPoint, TransportMode } from "@/lib/domain/types";
+import type {
+  GeoPoint,
+  PublicTransitMode,
+} from "@/lib/domain/types";
 import { decodePolyline } from "@/lib/geo/polyline";
+import { transitousModeFor } from "@/lib/providers/transitous/mode-map";
 import { isTransitousContactConfigured } from "@/lib/server/env";
 import { fetchWithRetry } from "@/lib/server/fetch-with-retry";
 import { ProviderError } from "@/lib/server/provider-error";
+import { createRateLimitedFetch } from "@/lib/server/rate-limited-fetch";
+import type { RequestRateLimiter } from "@/lib/server/request-rate-limiter";
+import { createSlidingWindowRateLimiter } from "@/lib/server/sliding-window-rate-limiter";
 
 interface TransitousClientOptions {
   contactUrl: string | undefined;
   fetchFn?: typeof fetch;
   now?: () => Date;
+  minimumIntervalMilliseconds?: number;
+  requestLimiter?: RequestRateLimiter;
 }
 
 interface TransitousRouteRequest {
-  mode: Extract<
-    TransportMode,
-    "train" | "subway" | "bus" | "tram" | "ferry"
-  >;
+  mode: PublicTransitMode;
   startPoint: GeoPoint;
   endPoint: GeoPoint;
   signal?: AbortSignal;
 }
 
-const TRANSIT_MODE = {
-  train: "RAIL",
-  subway: "SUBWAY",
-  bus: "BUS",
-  tram: "TRAM",
-  ferry: "FERRY",
-} as const satisfies Record<TransitousRouteRequest["mode"], string>;
+const sharedRequestLimiters = new Map<number, RequestRateLimiter>();
 
 const responseSchema = z.object({
   itineraries: z.array(
@@ -50,6 +50,10 @@ export function createTransitousClient({
   contactUrl,
   fetchFn = fetch,
   now = () => new Date(),
+  minimumIntervalMilliseconds = 5_000,
+  requestLimiter = sharedTransitousLimiterFor(
+    minimumIntervalMilliseconds,
+  ),
 }: TransitousClientOptions) {
   if (!isTransitousContactConfigured(contactUrl)) {
     throw new ProviderError({
@@ -59,6 +63,10 @@ export function createTransitousClient({
       retryable: false,
     });
   }
+  const rateLimitedFetch = createRateLimitedFetch(
+    fetchFn,
+    requestLimiter,
+  );
 
   return {
     async route(request: TransitousRouteRequest): Promise<{
@@ -76,7 +84,10 @@ export function createTransitousClient({
         `${request.endPoint.lat},${request.endPoint.lon}`,
       );
       url.searchParams.set("time", queryTime.toISOString());
-      url.searchParams.set("transitModes", TRANSIT_MODE[request.mode]);
+      url.searchParams.set(
+        "transitModes",
+        transitousModeFor(request.mode),
+      );
       url.searchParams.set("directModes", "");
       url.searchParams.set("preTransitModes", "WALK");
       url.searchParams.set("postTransitModes", "WALK");
@@ -91,7 +102,7 @@ export function createTransitousClient({
           },
           signal: request.signal,
         },
-        { fetchFn },
+        { fetchFn: rateLimitedFetch },
       );
       const parsed = responseSchema.safeParse(await response.json());
       if (!parsed.success) {
@@ -120,6 +131,23 @@ export function createTransitousClient({
       };
     },
   };
+}
+
+function sharedTransitousLimiterFor(
+  minimumIntervalMilliseconds: number,
+): RequestRateLimiter {
+  const existing = sharedRequestLimiters.get(
+    minimumIntervalMilliseconds,
+  );
+  if (existing) {
+    return existing;
+  }
+  const limiter = createSlidingWindowRateLimiter({
+    limit: 1,
+    windowMilliseconds: minimumIntervalMilliseconds,
+  });
+  sharedRequestLimiters.set(minimumIntervalMilliseconds, limiter);
+  return limiter;
 }
 
 function noData(): ProviderError {

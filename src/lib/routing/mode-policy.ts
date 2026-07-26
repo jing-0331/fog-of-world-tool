@@ -1,6 +1,20 @@
-import type { GeoPoint, TransportMode } from "@/lib/domain/types";
+import {
+  GENERAL_ROUTE_MODES,
+  PUBLIC_TRANSIT_MODES,
+  type GeneralRouteMode,
+  type GeoPoint,
+  type PublicTransitMode,
+  type TransportMode,
+} from "@/lib/domain/types";
 import { isTaiwanPoint } from "@/lib/geo/taiwan";
-import type { OpenRouteServiceProfile } from "@/lib/providers/openrouteservice/client";
+import {
+  openRouteServiceProfileFor,
+  type OpenRouteServiceProfile,
+} from "@/lib/providers/openrouteservice/mode-map";
+import {
+  transitousModeFor,
+  type TransitousMode,
+} from "@/lib/providers/transitous/mode-map";
 
 export type RoutePolicy =
   | {
@@ -9,38 +23,61 @@ export type RoutePolicy =
     }
   | {
       provider: "tdx" | "transitous";
-      transitMode: "RAIL" | "SUBWAY" | "BUS" | "TRAM" | "FERRY";
+      transitMode: TransitousMode;
     };
 
-const POLICIES = {
-  walking: { provider: "openrouteservice", profile: "foot-walking" },
-  running: { provider: "openrouteservice", profile: "foot-walking" },
-  cycling: { provider: "openrouteservice", profile: "cycling-regular" },
-  motorcycling: { provider: "openrouteservice", profile: "driving-car" },
-  driving: { provider: "openrouteservice", profile: "driving-car" },
-  train: { provider: "transitous", transitMode: "RAIL" },
-  subway: { provider: "transitous", transitMode: "SUBWAY" },
-  bus: { provider: "transitous", transitMode: "BUS" },
-  tram: { provider: "transitous", transitMode: "TRAM" },
-  ferry: { provider: "transitous", transitMode: "FERRY" },
-} as const satisfies Partial<Record<TransportMode, RoutePolicy>>;
+export type ModeFamily =
+  | "general"
+  | "public-transit"
+  | "flight";
+
+export function modeFamily(mode: TransportMode): ModeFamily {
+  if (mode === "flying") {
+    return "flight";
+  }
+  return isPublicTransitMode(mode)
+    ? "public-transit"
+    : "general";
+}
+
+export function isPublicTransitMode(
+  mode: TransportMode,
+): mode is PublicTransitMode {
+  return PUBLIC_TRANSIT_MODES.some(
+    (candidate) => candidate === mode,
+  );
+}
+
+function isGeneralRouteMode(
+  mode: TransportMode,
+): mode is GeneralRouteMode {
+  return GENERAL_ROUTE_MODES.some(
+    (candidate) => candidate === mode,
+  );
+}
 
 export function routePolicy(
   mode: TransportMode,
   startPoint?: GeoPoint,
   endPoint?: GeoPoint,
 ): RoutePolicy | null {
-  const policy = mode in POLICIES
-    ? POLICIES[mode as keyof typeof POLICIES]
-    : null;
+  if (isGeneralRouteMode(mode)) {
+    return {
+      provider: "openrouteservice",
+      profile: openRouteServiceProfileFor(mode),
+    };
+  }
+  const transitMode = transitousModeFor(mode);
+  if (transitMode === null) {
+    return null;
+  }
   if (
-    policy?.provider === "transitous" &&
     startPoint !== undefined &&
     endPoint !== undefined &&
     isTaiwanPoint(startPoint) &&
     isTaiwanPoint(endPoint)
   ) {
-    return { ...policy, provider: "tdx" };
+    return { provider: "tdx", transitMode };
   }
-  return policy;
+  return { provider: "transitous", transitMode };
 }

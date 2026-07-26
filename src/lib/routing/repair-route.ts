@@ -1,12 +1,16 @@
 import type {
   GeoPoint,
+  PublicTransitMode,
   RepairAttempt,
   RouteProvenance,
   TransportMode,
 } from "@/lib/domain/types";
 import { densifyPoints, interpolateRouteTimes } from "@/lib/geo/densify";
 import type { OpenRouteServiceProfile } from "@/lib/providers/openrouteservice/client";
-import { routePolicy } from "@/lib/routing/mode-policy";
+import {
+  isPublicTransitMode,
+  routePolicy,
+} from "@/lib/routing/mode-policy";
 import { ProviderError } from "@/lib/server/provider-error";
 
 export interface RepairRouteRequest {
@@ -27,19 +31,13 @@ interface RepairRouteDependencies {
     signal?: AbortSignal;
   }) => Promise<GeoPoint[]>;
   transitous: (request: {
-    mode: Extract<
-      TransportMode,
-      "train" | "subway" | "bus" | "tram" | "ferry"
-    >;
+    mode: PublicTransitMode;
     startPoint: GeoPoint;
     endPoint: GeoPoint;
     signal?: AbortSignal;
   }) => Promise<{ points: GeoPoint[]; referenceDate: string }>;
   tdx: (request: {
-    mode: Extract<
-      TransportMode,
-      "train" | "subway" | "bus" | "tram" | "ferry"
-    >;
+    mode: PublicTransitMode;
     startPoint: GeoPoint;
     endPoint: GeoPoint;
     signal?: AbortSignal;
@@ -88,13 +86,17 @@ export async function repairRoute(
       originalMode: request.mode,
     };
   } else {
+    if (!isPublicTransitMode(request.mode)) {
+      throw new ProviderError({
+        code: "no_data",
+        message: `交通方式 ${request.mode} 不是大眾運輸模式。`,
+        retryable: false,
+      });
+    }
     const transitProvider =
       policy.provider === "tdx" ? dependencies.tdx : dependencies.transitous;
     const transitResult = await transitProvider({
-      mode: request.mode as Extract<
-        TransportMode,
-        "train" | "subway" | "bus" | "tram" | "ferry"
-      >,
+      mode: request.mode,
       startPoint: request.startPoint,
       endPoint: request.endPoint,
       signal: request.signal,

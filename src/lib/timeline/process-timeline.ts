@@ -20,10 +20,22 @@ import type {
   TimelineRepairGap,
 } from "@/lib/timeline/build-legs";
 import { detectFlight } from "@/lib/timeline/detect-flight";
+import { prepareTimelineLegs } from "@/lib/timeline/prepare-timeline-legs";
 import {
   createProcessingReport,
   reportHasPartialResults,
 } from "@/lib/timeline/report";
+import {
+  createRouteScheduler,
+  type RouteScheduler,
+} from "@/lib/timeline/route-scheduler";
+import type {
+  AutomaticLane,
+  PersistedReviewDecision,
+  ReviewDecision,
+  ReviewQueueItem,
+  RoutingJob,
+} from "@/lib/timeline/route-job";
 import { createTdxRouteReuse } from "@/lib/timeline/tdx-route-reuse";
 
 export interface TimelineProcessingDependencies {
@@ -45,6 +57,9 @@ export interface TimelineProcessingDependencies {
       signal?: AbortSignal;
     },
   ) => Promise<RepairRouteResult>;
+  persistReviewDecision?: (
+    decision: PersistedReviewDecision,
+  ) => Promise<void>;
 }
 
 export interface TimelineProgress {
@@ -53,7 +68,7 @@ export interface TimelineProgress {
   message: string;
 }
 
-interface ProcessTimelineOptions {
+export interface ProcessTimelineOptions {
   signal?: AbortSignal;
   onProgress?: (progress: TimelineProgress) => void;
   invalidData?: ProcessingReport["invalidData"];
@@ -68,6 +83,26 @@ export interface ProcessTimelineResult {
   partial: boolean;
   warning: string | null;
   canceled: boolean;
+}
+
+export type TimelineProcessingEvent =
+  | {
+      type: "route-succeeded";
+      gapId: string;
+      lane: AutomaticLane;
+    }
+  | { type: "review-enqueued"; item: ReviewQueueItem }
+  | { type: "review-removed"; gapId: string }
+  | { type: "progress"; progress: TimelineProgress };
+
+export interface TimelineProcessingSession {
+  automaticDone: Promise<ProcessTimelineResult>;
+  finished: Promise<ProcessTimelineResult>;
+  submitReview(decision: ReviewDecision): Promise<void>;
+  subscribe(
+    listener: (event: TimelineProcessingEvent) => void,
+  ): () => void;
+  cancel(): void;
 }
 
 export const TIMELINE_CONTIGUOUS_TIME_TOLERANCE_MS = 60_000;
@@ -90,22 +125,293 @@ interface PreparedGap {
   effectiveMode: TransportMode;
   cachedRoute: CachedRoute | null;
   preparationError?: unknown;
-  lane: "regular" | "tdx";
+  lane: AutomaticLane;
 }
 
-export async function processTimeline(
+interface TimelineProcessingHooks {
+  onProgress?(progress: TimelineProgress): void;
+  onRouteSucceeded?(gapId: string, lane: AutomaticLane): void;
+  onReviewEnqueued?(item: ReviewQueueItem): void;
+  onReviewRemoved?(gapId: string): void;
+}
+
+interface TimelineProcessingRuntime {
+  scheduler: RouteScheduler;
+  tdxRouteReuse: ReturnType<typeof createTdxRouteReuse>;
+  hooks?: TimelineProcessingHooks;
+}
+
+export function processTimeline(
   legs: TimelineLeg[],
   dependencies: TimelineProcessingDependencies,
   options: ProcessTimelineOptions = {},
 ): Promise<ProcessTimelineResult> {
+  return startTimelineProcessing(
+    legs,
+    dependencies,
+    options,
+  ).automaticDone;
+}
+
+export function startTimelineProcessing(
+  legs: TimelineLeg[],
+  dependencies: TimelineProcessingDependencies,
+  options: ProcessTimelineOptions = {},
+): TimelineProcessingSession {
+  const listeners = new Set<
+    (event: TimelineProcessingEvent) => void
+  >();
+  const reviews = new Map<string, ReviewQueueItem>();
+  const corrections = new Map<string, StoredCorrection>();
+  const controller = new AbortController();
+  let automaticResult: ProcessTimelineResult | null = null;
+  let activeManualJobs = 0;
+  let canceled = false;
+  let needsFinalRerun = false;
+  let finishing = false;
+  let resolveFinished!: (result: ProcessTimelineResult) => void;
+  let rejectFinished!: (reason?: unknown) => void;
+  const finished = new Promise<ProcessTimelineResult>(
+    (resolve, reject) => {
+      resolveFinished = resolve;
+      rejectFinished = reject;
+    },
+  );
+
+  const emit = (event: TimelineProcessingEvent) => {
+    listeners.forEach((listener) => listener(event));
+  };
+  const removeReview = (gapId: string) => {
+    if (reviews.delete(gapId)) {
+      emit({ type: "review-removed", gapId });
+    }
+  };
+  const hooks: TimelineProcessingHooks = {
+    onProgress(progress) {
+      emit({ type: "progress", progress });
+    },
+    onRouteSucceeded(gapId, lane) {
+      emit({ type: "route-succeeded", gapId, lane });
+    },
+    onReviewEnqueued(item) {
+      if (!reviews.has(item.gap.id)) {
+        reviews.set(item.gap.id, item);
+        emit({ type: "review-enqueued", item });
+      }
+    },
+    onReviewRemoved: removeReview,
+  };
+  const sessionDependencies: TimelineProcessingDependencies = {
+    ...dependencies,
+    async getCorrection(gap) {
+      return (
+        corrections.get(gap.id) ??
+        (await dependencies.getCorrection(gap))
+      );
+    },
+  };
+  const runtime = createTimelineProcessingRuntime(
+    sessionDependencies,
+    hooks,
+  );
+  const processingOptions: ProcessTimelineOptions = {
+    ...options,
+    signal: controller.signal,
+  };
+
+  const canceledSessionResult = (): ProcessTimelineResult => {
+    const base =
+      automaticResult ??
+      canceledResult(
+        createProcessingReport({ invalidData: options.invalidData }),
+      );
+    return {
+      ...base,
+      gpx: null,
+      downloadable: false,
+      canceled: true,
+    };
+  };
+  const finishIfReady = () => {
+    if (
+      finishing ||
+      automaticResult === null ||
+      activeManualJobs > 0
+    ) {
+      return;
+    }
+    if (canceled) {
+      finishing = true;
+      resolveFinished(canceledSessionResult());
+      return;
+    }
+    if (reviews.size > 0) {
+      return;
+    }
+    finishing = true;
+    if (!needsFinalRerun) {
+      resolveFinished(automaticResult);
+      return;
+    }
+    void runTimelineProcessing(
+      legs,
+      sessionDependencies,
+      processingOptions,
+      runtime,
+    ).then(resolveFinished, rejectFinished);
+  };
+
+  const automaticDone = runTimelineProcessing(
+    legs,
+    sessionDependencies,
+    processingOptions,
+    runtime,
+  ).then(
+    (result) => {
+      automaticResult = result;
+      finishIfReady();
+      return result;
+    },
+    (error) => {
+      rejectFinished(error);
+      throw error;
+    },
+  );
+
+  const cancel = () => {
+    if (canceled) {
+      return;
+    }
+    canceled = true;
+    const reason = new DOMException(
+      "The operation was aborted.",
+      "AbortError",
+    );
+    controller.abort(reason);
+    runtime.scheduler.cancel(reason);
+    finishIfReady();
+  };
+  options.signal?.addEventListener("abort", cancel, { once: true });
+  if (options.signal?.aborted) {
+    cancel();
+  }
+
+  return {
+    automaticDone,
+    finished,
+
+    async submitReview(decision) {
+      if (canceled) {
+        throw new DOMException(
+          "The operation was aborted.",
+          "AbortError",
+        );
+      }
+      const item = reviews.get(decision.gapId);
+      if (!item) {
+        throw new Error(`找不到待人工確認路段：${decision.gapId}`);
+      }
+
+      activeManualJobs += 1;
+      try {
+        if (decision.action === "exclude") {
+          const persisted: PersistedReviewDecision = {
+            gapId: item.gap.id,
+            action: "exclude",
+            originalMode: item.originalMode,
+          };
+          await dependencies.persistReviewDecision?.(persisted);
+          corrections.set(item.gap.id, {
+            gapId: item.gap.id,
+            action: "exclude",
+            originalMode: item.originalMode,
+            updatedAt: new Date().toISOString(),
+          });
+          needsFinalRerun = true;
+          removeReview(item.gap.id);
+          return;
+        }
+
+        const scheduled = await runtime.scheduler.enqueue(
+          {
+            gap: item.gap,
+            originalMode: item.originalMode,
+            mode: decision.mode,
+          },
+          "manual",
+        );
+        const normalizedRoute: CachedRoute = {
+          points: scheduled.result.points,
+          provenance: {
+            ...scheduled.result.provenance,
+            originalMode: item.originalMode,
+            correctedMode: decision.mode,
+            userOverride: true,
+          },
+        };
+        await dependencies.putCachedRoute(
+          item.gap,
+          decision.mode,
+          normalizedRoute,
+        );
+        await dependencies.persistReviewDecision?.({
+          gapId: item.gap.id,
+          action: "reroute",
+          originalMode: item.originalMode,
+          correctedMode: decision.mode,
+          normalizedRoute,
+        });
+        corrections.set(item.gap.id, {
+          gapId: item.gap.id,
+          action: "reroute",
+          originalMode: item.originalMode,
+          correctedMode: decision.mode,
+          normalizedRoute,
+          finalSource: normalizedRoute.provenance.source,
+          userOverride: true,
+          updatedAt: new Date().toISOString(),
+        });
+        needsFinalRerun = true;
+        emit({
+          type: "route-succeeded",
+          gapId: item.gap.id,
+          lane: scheduled.lane,
+        });
+        removeReview(item.gap.id);
+      } finally {
+        activeManualJobs -= 1;
+        finishIfReady();
+      }
+    },
+
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+
+    cancel,
+  };
+}
+
+async function runTimelineProcessing(
+  legs: TimelineLeg[],
+  dependencies: TimelineProcessingDependencies,
+  options: ProcessTimelineOptions = {},
+  existingRuntime?: TimelineProcessingRuntime,
+): Promise<ProcessTimelineResult> {
+  const preparedLegs = prepareTimelineLegs(legs);
   const report = createProcessingReport({
     invalidData: options.invalidData,
   });
   const segments: RouteSegment[] = [];
   const processedGaps: ProcessedGap[] = [];
   const completedGapIds = new Set<string>();
-  const tdxRouteReuse = createTdxRouteReuse();
-  const gaps = legs
+  const pendingProviderJobs = new Map<string, AutomaticLane>();
+  const runtime =
+    existingRuntime ??
+    createTimelineProcessingRuntime(dependencies);
+  const { scheduler, tdxRouteReuse, hooks } = runtime;
+  const gaps = preparedLegs
     .flatMap((leg) => leg.gaps.map((gap) => ({ leg, gap })))
     .sort(
       (left, right) =>
@@ -117,15 +423,22 @@ export async function processTimeline(
     return canceledResult(report);
   }
   const reportProgress = (message: string) => {
-    options.onProgress?.({
+    const progress = {
       current: completedGapIds.size,
       total: gaps.length,
       message,
-    });
+    };
+    options.onProgress?.(progress);
+    hooks?.onProgress?.(progress);
   };
   reportProgress(`已完成 0/${gaps.length}`);
+  options.signal?.addEventListener(
+    "abort",
+    () => scheduler.cancel(options.signal?.reason),
+    { once: true },
+  );
 
-  for (const leg of [...legs].sort(compareLegs)) {
+  for (const leg of [...preparedLegs].sort(compareLegs)) {
     if (leg.classification === "explicit-flight") {
       report.skippedFlights.push({
         segmentId: leg.id,
@@ -233,14 +546,23 @@ export async function processTimeline(
         route = latestCachedRoute;
       } else {
         providerRepairStarted = true;
-        const repaired = await dependencies.repair({
-          ...gap,
-          mode: effectiveMode,
-          signal: options.signal,
-        });
-        providerRepairCompleted = true;
-        route = repaired;
-        attempts = repaired.attempts;
+        pendingProviderJobs.set(gap.id, lane);
+        try {
+          const scheduled = await scheduler.enqueue(
+            {
+              gap,
+              originalMode: leg.mode,
+              mode: effectiveMode,
+            },
+            "automatic",
+          );
+          const repaired = scheduled.result;
+          providerRepairCompleted = true;
+          route = repaired;
+          attempts = repaired.attempts;
+        } finally {
+          pendingProviderJobs.delete(gap.id);
+        }
       }
       if (options.signal?.aborted) {
         return "canceled";
@@ -300,6 +622,9 @@ export async function processTimeline(
           : "已自動修補時間軸缺口。",
         source: segment.provenance.source,
       });
+      if (providerRepairCompleted) {
+        hooks?.onRouteSucceeded?.(gap.id, lane);
+      }
       processedGaps.push({
         leg,
         gap,
@@ -309,7 +634,13 @@ export async function processTimeline(
         segmentId: segment.id,
       });
       completedGapIds.add(gap.id);
-      reportProgress(`已完成 ${completedGapIds.size}/${gaps.length}`);
+      reportProgress(
+        progressMessage(
+          pendingProviderJobs,
+          completedGapIds.size,
+          gaps.length,
+        ),
+      );
       return "completed";
     } catch (error) {
       if (isAbortError(error) || options.signal?.aborted) {
@@ -322,14 +653,19 @@ export async function processTimeline(
         gap.startPoint,
         gap.endPoint,
       );
-      if (policy) {
+      const failedAttempt = policy
+        ? {
+            source: policy.provider,
+            status: "failed" as const,
+            code: providerError.code,
+            message: providerError.message,
+            retryable: providerError.retryable,
+          }
+        : null;
+      if (policy && failedAttempt) {
         report.providerAttempts.push({
           segmentId: gap.id,
-          source: policy.provider,
-          status: "failed",
-          code: providerError.code,
-          message: providerError.message,
-          retryable: providerError.retryable,
+          ...failedAttempt,
         });
       }
       const flight = detectFlight({
@@ -350,6 +686,18 @@ export async function processTimeline(
           message: `所有可用路線來源均失敗：${providerError.message}`,
         });
       }
+      if (policy && failedAttempt) {
+        hooks?.onReviewEnqueued?.({
+          gap,
+          originalMode: leg.mode,
+          attemptedMode: effectiveMode,
+          lane: policy.provider,
+          attempts: [failedAttempt],
+          ...(flight === "probable"
+            ? { warning: "probable-flight" as const }
+            : {}),
+        });
+      }
       processedGaps.push({
         leg,
         gap,
@@ -365,21 +713,10 @@ export async function processTimeline(
     }
   };
 
-  const runLane = async (
-    lane: PreparedGap[],
-  ): Promise<"completed" | "canceled"> => {
-    for (const item of lane) {
-      if ((await processGap(item)) === "canceled") {
-        return "canceled";
-      }
-    }
-    return "completed";
-  };
-  const [regularLaneResult, tdxLaneResult] = await Promise.all([
-    runLane(preparedGaps.filter(({ lane }) => lane === "regular")),
-    runLane(preparedGaps.filter(({ lane }) => lane === "tdx")),
-  ]);
-  if (regularLaneResult === "canceled" || tdxLaneResult === "canceled") {
+  const automaticResults = await Promise.all(
+    preparedGaps.map(processGap),
+  );
+  if (automaticResults.includes("canceled")) {
     return canceledResult(report);
   }
   processedGaps.sort(
@@ -393,8 +730,12 @@ export async function processTimeline(
     segments,
     report,
     dependencies,
+    scheduler,
     (resolvedGapIds) => {
-      resolvedGapIds.forEach((gapId) => completedGapIds.add(gapId));
+      resolvedGapIds.forEach((gapId) => {
+        completedGapIds.add(gapId);
+        hooks?.onReviewRemoved?.(gapId);
+      });
       reportProgress(`已完成 ${completedGapIds.size}/${gaps.length}`);
     },
     options.signal,
@@ -408,9 +749,11 @@ export async function processTimeline(
       ...segment,
       points: normalizePoints(
         segment.points,
-        segment.points[0]?.time ?? legs[0]?.startTime ?? new Date(0).toISOString(),
+        segment.points[0]?.time ??
+          preparedLegs[0]?.startTime ??
+          new Date(0).toISOString(),
         segment.points.at(-1)?.time ??
-          legs[0]?.endTime ??
+          preparedLegs[0]?.endTime ??
           new Date(0).toISOString(),
       ),
     }))
@@ -419,11 +762,7 @@ export async function processTimeline(
     return completeResult(normalizedSegments, report, null, false);
   }
 
-  options.onProgress?.({
-    current: completedGapIds.size,
-    total: gaps.length,
-    message: "建立 GPX。",
-  });
+  reportProgress("建立 GPX。");
   const gpx = buildGpx({
     name: options.name ?? "Fog of World Timeline",
     segments: normalizedSegments,
@@ -433,11 +772,7 @@ export async function processTimeline(
       skippedFlightCount: report.skippedFlights.length,
     },
   });
-  options.onProgress?.({
-    current: completedGapIds.size,
-    total: gaps.length,
-    message: "驗證 GPX。",
-  });
+  reportProgress("驗證 GPX。");
   const validation = validateGpx(gpx);
   if (!validation.valid) {
     validation.errors.forEach((message, index) => {
@@ -450,6 +785,53 @@ export async function processTimeline(
   }
 
   return completeResult(normalizedSegments, report, gpx, true);
+}
+
+function createTimelineProcessingRuntime(
+  dependencies: TimelineProcessingDependencies,
+  hooks?: TimelineProcessingHooks,
+): TimelineProcessingRuntime {
+  const tdxRouteReuse = createTdxRouteReuse();
+  const adapterFor = (id: AutomaticLane) => ({
+    id,
+    async route(job: RoutingJob, signal?: AbortSignal) {
+      if (id === "tdx") {
+        const reused = tdxRouteReuse.get(job.gap, job.mode);
+        if (reused) {
+          return { ...reused, attempts: [] };
+        }
+      }
+      const repaired = await dependencies.repair({
+        ...job.gap,
+        mode: job.mode,
+        signal,
+      });
+      if (id === "tdx" && repaired.provenance.source === "tdx") {
+        tdxRouteReuse.record(job.gap, job.mode, {
+          points: repaired.points,
+          provenance: repaired.provenance,
+        });
+      }
+      return repaired;
+    },
+  });
+  const scheduler = createRouteScheduler({
+    adapters: {
+      openrouteservice: adapterFor("openrouteservice"),
+      transitous: adapterFor("transitous"),
+      tdx: adapterFor("tdx"),
+    },
+    selectLane(job) {
+      return (
+        routePolicy(
+          job.mode,
+          job.gap.startPoint,
+          job.gap.endPoint,
+        )?.provider ?? null
+      );
+    },
+  });
+  return { scheduler, tdxRouteReuse, hooks };
 }
 
 async function prepareGap(
@@ -478,8 +860,8 @@ async function prepareGap(
         gap,
         correction,
         effectiveMode,
-        cachedRoute: null,
-        lane: "regular",
+      cachedRoute: null,
+      lane: "openrouteservice",
       };
     }
 
@@ -501,10 +883,7 @@ async function prepareGap(
       correction,
       effectiveMode,
       cachedRoute,
-      lane:
-        cachedRoute === null && selectedPolicy?.provider === "tdx"
-          ? "tdx"
-          : "regular",
+      lane: selectedPolicy?.provider ?? "openrouteservice",
     };
   } catch (preparationError) {
     return {
@@ -515,7 +894,7 @@ async function prepareGap(
       effectiveMode,
       cachedRoute: null,
       preparationError,
-      lane: "regular",
+      lane: "openrouteservice",
     };
   }
 }
@@ -541,6 +920,7 @@ async function retryContiguousGapGroups(
   segments: RouteSegment[],
   report: ProcessingReport,
   dependencies: TimelineProcessingDependencies,
+  scheduler: ReturnType<typeof createRouteScheduler>,
   onResolved: (gapIds: string[]) => void,
   signal?: AbortSignal,
 ): Promise<"completed" | "canceled"> {
@@ -587,12 +967,16 @@ async function retryContiguousGapGroups(
       if (cached) {
         route = cached;
       } else {
-        const repaired = await dependencies.repair({
-          ...mergedGap,
-          signal,
-        });
-        route = repaired;
-        attempts = repaired.attempts;
+        const scheduled = await scheduler.enqueue(
+          {
+            gap: mergedGap,
+            originalMode: mode,
+            mode,
+          },
+          "automatic",
+        );
+        route = scheduled.result;
+        attempts = scheduled.result.attempts;
       }
       if (signal?.aborted) {
         return "canceled";
@@ -675,32 +1059,8 @@ async function retryContiguousGapGroups(
     }
     return "completed";
   };
-  const runLane = async (
-    groups: ProcessedGap[][],
-  ): Promise<"completed" | "canceled"> => {
-    for (const group of groups) {
-      if ((await retryGroup(group)) === "canceled") {
-        return "canceled";
-      }
-    }
-    return "completed";
-  };
-  const isTdxGroup = (group: ProcessedGap[]) => {
-    const first = group[0];
-    const last = group.at(-1)!;
-    return (
-      routePolicy(
-        first.effectiveMode!,
-        first.gap.startPoint,
-        last.gap.endPoint,
-      )?.provider === "tdx"
-    );
-  };
-  const [regularLaneResult, tdxLaneResult] = await Promise.all([
-    runLane(retryGroups.filter((group) => !isTdxGroup(group))),
-    runLane(retryGroups.filter(isTdxGroup)),
-  ]);
-  return regularLaneResult === "canceled" || tdxLaneResult === "canceled"
+  const results = await Promise.all(retryGroups.map(retryGroup));
+  return results.includes("canceled")
     ? "canceled"
     : "completed";
 }
@@ -818,6 +1178,20 @@ function compareSegments(left: RouteSegment, right: RouteSegment): number {
       right.points[0]?.time ?? "",
     ) || left.id.localeCompare(right.id)
   );
+}
+
+function progressMessage(
+  pendingProviderJobs: Map<string, AutomaticLane>,
+  completed: number,
+  total: number,
+): string {
+  const activeLane = [...pendingProviderJobs.values()].at(-1);
+  if (activeLane === undefined) {
+    return `已完成 ${completed}/${total}`;
+  }
+  return activeLane === "tdx"
+    ? `正在處理 TDX 路段；已完成 ${completed}/${total}`
+    : `正在處理一般路段；已完成 ${completed}/${total}`;
 }
 
 function isAbortError(error: unknown): boolean {

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createSlidingWindowRateLimiter } from "@/lib/providers/tdx/rate-limiter";
+import { createSlidingWindowRateLimiter } from "@/lib/server/sliding-window-rate-limiter";
 
-describe("TDX sliding-window rate limiter", () => {
+describe("sliding-window rate limiter", () => {
   it("allows five requests immediately and waits before the sixth", async () => {
     let nowMilliseconds = 0;
     let releaseWait: (() => void) | undefined;

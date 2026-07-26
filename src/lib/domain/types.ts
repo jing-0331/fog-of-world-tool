@@ -18,19 +18,46 @@ export type RouteSource =
   | "local-calculation"
   | "user";
 
-export type TransportMode =
-  | "walking"
-  | "running"
-  | "cycling"
-  | "motorcycling"
-  | "driving"
-  | "train"
-  | "subway"
-  | "bus"
-  | "tram"
-  | "ferry"
-  | "flying"
-  | "unknown";
+export const GENERAL_ROUTE_MODES = [
+  "walking",
+  "running",
+  "cycling",
+  "motorcycling",
+  "driving",
+] as const;
+
+export const PUBLIC_TRANSIT_MODES = [
+  "transit",
+  "train",
+  "rail",
+  "taiwan-rail",
+  "high-speed-rail",
+  "long-distance-rail",
+  "night-rail",
+  "regional-rail",
+  "suburban-rail",
+  "subway",
+  "bus",
+  "coach",
+  "tram",
+  "ferry",
+  "funicular",
+  "aerial-lift",
+  "other-transit",
+] as const;
+
+export const TRANSPORT_MODES = [
+  ...GENERAL_ROUTE_MODES,
+  ...PUBLIC_TRANSIT_MODES,
+  "flying",
+  "unknown",
+] as const;
+
+export type TransportMode = (typeof TRANSPORT_MODES)[number];
+export type GeneralRouteMode =
+  (typeof GENERAL_ROUTE_MODES)[number];
+export type PublicTransitMode =
+  (typeof PUBLIC_TRANSIT_MODES)[number];
 
 export interface RouteProvenance {
   kind: RouteKind;

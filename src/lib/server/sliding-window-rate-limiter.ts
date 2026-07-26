@@ -1,6 +1,4 @@
-export interface RequestRateLimiter {
-  acquire(signal?: AbortSignal): Promise<void>;
-}
+import type { RequestRateLimiter } from "@/lib/server/request-rate-limiter";
 
 interface SlidingWindowRateLimiterOptions {
   limit: number;

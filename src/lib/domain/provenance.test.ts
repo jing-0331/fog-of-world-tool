@@ -5,6 +5,7 @@ import {
   routeSourceLabel,
   transportModeLabel,
 } from "@/lib/domain/provenance";
+import { TRANSPORT_MODES } from "@/lib/domain/types";
 
 describe("routeKindLabel", () => {
   it("uses the exact Traditional Chinese flight route labels", () => {
@@ -35,6 +36,13 @@ describe("routeSourceLabel", () => {
 });
 
 describe("transportModeLabel", () => {
+  it("labels every stable transport mode", () => {
+    for (const mode of TRANSPORT_MODES) {
+      expect(transportModeLabel(mode)).toEqual(expect.any(String));
+      expect(transportModeLabel(mode).length).toBeGreaterThan(0);
+    }
+  });
+
   it("labels unknown transport explicitly", () => {
     expect(transportModeLabel("unknown")).toBe("未知");
   });

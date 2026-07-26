@@ -1,17 +1,19 @@
 import { z } from "zod";
 
 import type { GeoPoint } from "@/lib/domain/types";
+import type { OpenRouteServiceProfile } from "@/lib/providers/openrouteservice/mode-map";
 import { fetchWithRetry } from "@/lib/server/fetch-with-retry";
 import { ProviderError } from "@/lib/server/provider-error";
+import { createRateLimitedFetch } from "@/lib/server/rate-limited-fetch";
+import type { RequestRateLimiter } from "@/lib/server/request-rate-limiter";
+import { createSlidingWindowRateLimiter } from "@/lib/server/sliding-window-rate-limiter";
 
-export type OpenRouteServiceProfile =
-  | "foot-walking"
-  | "cycling-regular"
-  | "driving-car";
+export type { OpenRouteServiceProfile } from "@/lib/providers/openrouteservice/mode-map";
 
 interface OpenRouteServiceClientOptions {
   apiKey: string;
   fetchFn?: typeof fetch;
+  requestLimiter?: RequestRateLimiter;
 }
 
 interface OpenRouteServiceRouteRequest {
@@ -49,14 +51,24 @@ const reverseResponseSchema = z.object({
   ),
 });
 
+const sharedRequestLimiter = createSlidingWindowRateLimiter({
+  limit: 40,
+  windowMilliseconds: 60_000,
+});
+
 export function createOpenRouteServiceClient({
   apiKey,
   fetchFn = fetch,
+  requestLimiter = sharedRequestLimiter,
 }: OpenRouteServiceClientOptions) {
   const headers = {
     Authorization: apiKey,
     "Content-Type": "application/json",
   };
+  const rateLimitedFetch = createRateLimitedFetch(
+    fetchFn,
+    requestLimiter,
+  );
 
   return {
     async route(request: OpenRouteServiceRouteRequest): Promise<GeoPoint[]> {
@@ -73,7 +85,7 @@ export function createOpenRouteServiceClient({
           }),
           signal: request.signal,
         },
-        { fetchFn },
+        { fetchFn: rateLimitedFetch },
       );
 
       const parsed = routeResponseSchema.safeParse(await response.json());

@@ -73,4 +73,55 @@ describe("Transitous client", () => {
         "fog-of-world-tool/0.1.0 (+https://example.test/fog-tool)",
     });
   });
+
+  it("counts every routing retry against the shared request limiter", async () => {
+    const encoded = polyline.encode(
+      [
+        [25, 121.5],
+        [25.1, 121.6],
+      ],
+      6,
+    );
+    const payload = {
+      itineraries: [
+        {
+          legs: [
+            {
+              legGeometry: {
+                points: encoded,
+                precision: 6,
+                length: 2,
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 429,
+          headers: { "Retry-After": "0" },
+        }),
+      )
+      .mockResolvedValueOnce(Response.json(payload));
+    const requestLimiter = {
+      acquire: vi.fn().mockResolvedValue(undefined),
+    };
+    const client = createTransitousClient({
+      contactUrl: "https://example.test/fog-tool",
+      fetchFn,
+      requestLimiter,
+    });
+
+    await client.route({
+      mode: "bus",
+      startPoint: { lat: 25, lon: 121.5 },
+      endPoint: { lat: 25.1, lon: 121.6 },
+    });
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(requestLimiter.acquire).toHaveBeenCalledTimes(2);
+  });
 });

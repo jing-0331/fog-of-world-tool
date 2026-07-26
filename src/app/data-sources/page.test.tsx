@@ -43,7 +43,13 @@ describe("data sources page", () => {
     );
     expect(screen.getByText(/台灣境內的大眾運輸路線/)).toBeInTheDocument();
     expect(
-      screen.getByText(/免付費方案每分鐘最多 5 次請求/),
+      screen.getByText(/預設每 60 秒 5 次/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/40 次.*2,000 次.*只作文件提醒/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/沒有公開固定的每分鐘或每日額度.*5 秒/),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Google Timeline 匯出說明" }),

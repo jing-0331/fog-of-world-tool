@@ -1,13 +1,16 @@
 import { z } from "zod";
 
-import type { GeoPoint, TransportMode } from "@/lib/domain/types";
+import type {
+  GeoPoint,
+  PublicTransitMode,
+} from "@/lib/domain/types";
 import { decodeFlexiblePolyline } from "@/lib/geo/flexible-polyline";
-import {
-  createSlidingWindowRateLimiter,
-  type RequestRateLimiter,
-} from "@/lib/providers/tdx/rate-limiter";
+import { tdxTransitCodeFor } from "@/lib/providers/tdx/mode-map";
 import { fetchWithRetry } from "@/lib/server/fetch-with-retry";
 import { ProviderError } from "@/lib/server/provider-error";
+import { createRateLimitedFetch } from "@/lib/server/rate-limited-fetch";
+import type { RequestRateLimiter } from "@/lib/server/request-rate-limiter";
+import { createSlidingWindowRateLimiter } from "@/lib/server/sliding-window-rate-limiter";
 
 interface TdxClientOptions {
   clientId: string | undefined;
@@ -15,14 +18,12 @@ interface TdxClientOptions {
   fetchFn?: typeof fetch;
   now?: () => Date;
   tokenCache?: Map<string, CachedToken>;
+  requestsPerMinute?: number;
   requestLimiter?: RequestRateLimiter;
 }
 
 interface TdxRouteRequest {
-  mode: Extract<
-    TransportMode,
-    "train" | "subway" | "bus" | "tram" | "ferry"
-  >;
+  mode: PublicTransitMode;
   startPoint: GeoPoint;
   endPoint: GeoPoint;
   signal?: AbortSignal;
@@ -39,18 +40,7 @@ const ROUTING_URL = "https://tdx.transportdata.tw/api/maas/routing";
 const TOKEN_REFRESH_BUFFER_MILLISECONDS = 60_000;
 const TAIPEI_OFFSET_MILLISECONDS = 8 * 60 * 60 * 1_000;
 const sharedTokenCache = new Map<string, CachedToken>();
-const sharedRequestLimiter = createSlidingWindowRateLimiter({
-  limit: 5,
-  windowMilliseconds: 60_000,
-});
-
-const TRANSIT_CODES = {
-  train: "3,4",
-  subway: "6",
-  bus: "5",
-  tram: "7",
-  ferry: "8",
-} as const satisfies Record<TdxRouteRequest["mode"], string>;
+const sharedRequestLimiters = new Map<number, RequestRateLimiter>();
 
 const tokenResponseSchema = z.object({
   access_token: z.string().min(1),
@@ -102,7 +92,8 @@ export function createTdxClient({
   fetchFn = fetch,
   now = () => new Date(),
   tokenCache = sharedTokenCache,
-  requestLimiter = sharedRequestLimiter,
+  requestsPerMinute = 5,
+  requestLimiter = sharedTdxLimiterFor(requestsPerMinute),
 }: TdxClientOptions) {
   if (!clientId || !clientSecret) {
     throw new ProviderError({
@@ -112,10 +103,10 @@ export function createTdxClient({
     });
   }
 
-  const rateLimitedFetch: typeof fetch = async (input, init) => {
-    await requestLimiter.acquire(init?.signal ?? undefined);
-    return fetchFn(input, init);
-  };
+  const rateLimitedFetch = createRateLimitedFetch(
+    fetchFn,
+    requestLimiter,
+  );
 
   const accessToken = async (signal?: AbortSignal): Promise<string> => {
     const nowMilliseconds = now().getTime();
@@ -176,7 +167,10 @@ export function createTdxClient({
       );
       url.searchParams.set("gc", "1");
       url.searchParams.set("top", "1");
-      url.searchParams.set("transit", TRANSIT_CODES[request.mode]);
+      url.searchParams.set(
+        "transit",
+        tdxTransitCodeFor(request.mode),
+      );
       url.searchParams.set("transfer_time", "0,60");
       url.searchParams.set("first_mile_mode", "0");
       url.searchParams.set("first_mile_time", "60");
@@ -227,6 +221,21 @@ export function createTdxClient({
       };
     },
   };
+}
+
+function sharedTdxLimiterFor(
+  requestsPerMinute: number,
+): RequestRateLimiter {
+  const existing = sharedRequestLimiters.get(requestsPerMinute);
+  if (existing) {
+    return existing;
+  }
+  const limiter = createSlidingWindowRateLimiter({
+    limit: requestsPerMinute,
+    windowMilliseconds: 60_000,
+  });
+  sharedRequestLimiters.set(requestsPerMinute, limiter);
+  return limiter;
 }
 
 function sectionPoints(section: z.infer<typeof sectionSchema>): GeoPoint[] {

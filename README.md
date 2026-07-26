@@ -44,7 +44,9 @@ npm.cmd start
 | `FLIGHTPLANDB_API_KEY` | Flight Plan Database 的完整模擬航路查詢 | 仍可嘗試不需憑證的查詢，最後可本機計算大圓路線 |
 | `OPENROUTESERVICE_API_KEY` | Timeline 地面路線修復與反向地理編碼 | 地面缺口進入人工審核 |
 | `TDX_CLIENT_ID` + `TDX_CLIENT_SECRET` | 起訖點都在台灣的大眾運輸路線修復 | 台灣大眾運輸缺口進入人工審核 |
+| `TDX_REQUESTS_PER_MINUTE` | TDX MaaS 每個 server process 的滾動 60 秒上限 | `5` |
 | `TRANSITOUS_CONTACT_URL` | 台灣以外且 Transitous 有公開 feed 地區的大眾運輸路線修復；必須是可聯絡的真實網址 | 海外大眾運輸缺口進入人工審核 |
+| `TRANSITOUS_MIN_INTERVAL_MS` | Transitous 每次 HTTP attempt 的最小間隔 | `5000`（5 秒） |
 
 範例：
 
@@ -56,10 +58,18 @@ OPENSKY_CLIENT_SECRET=
 FLIGHTPLANDB_API_KEY=
 TDX_CLIENT_ID=
 TDX_CLIENT_SECRET=
+TDX_REQUESTS_PER_MINUTE=5
 TRANSITOUS_CONTACT_URL=https://github.com/YOUR_ACCOUNT/YOUR_REPOSITORY
+TRANSITOUS_MIN_INTERVAL_MS=5000
 ```
 
-畫面會顯示各能力是否可用，而不會回傳密鑰。TDX 憑證可在 TDX 會員中心的「資料服務 → API 金鑰」取得；兩個欄位必須一起設定。為符合 TDX 免付費方案每分鐘最多 5 次請求的限制，同一個 server process 會將所有 MaaS 路線請求排入共用的滾動 60 秒佇列，自動重試也會計入；OAuth token 請求不計入 MaaS 額度。多實例部署須另以共享限流服務協調全域額度。`TRANSITOUS_CONTACT_URL` 不能保留範例值；工具會把應用程式名稱、版本與聯絡網址放在 Transitous 的 `User-Agent`。若要大量路線查詢，請先聯絡 Transitous 營運者。
+畫面會顯示各能力是否可用，而不會回傳密鑰。TDX 憑證可在 TDX 會員中心的「資料服務 → API 金鑰」取得；兩個欄位必須一起設定。TDX 官方頻率依會員訂閱方案而異，本專案保守預設為每 60 秒 5 次；同一個 server process 會將所有 MaaS HTTP attempts（包含 retry）排入共用的滾動佇列，OAuth token 請求不計入。可用 `TDX_REQUESTS_PER_MINUTE` 對齊實際帳戶，但仍應以官方帳戶頁為準。多實例部署須另以共享限流服務協調全域額度。
+
+OpenRouteService Directions 在同一個 server process 內共用任一滾動 60 秒最多 40 次的 limiter，每次 retry 都重新取得額度。Standard plan 的 2,000 次／24 小時只在此提醒，不在程式內另做日額度拒絕；部署者仍需自行遵守帳戶方案。
+
+Transitous 官方沒有公布固定的每分鐘或每日額度，只要求大量或昂貴 routing 前先聯絡。本專案使用的是 Transitous 提供的 MOTIS v6 API；採單線逐筆，並讓每個 HTTP attempt（包含 retry）至少間隔 5 秒，約最多 12 attempts/minute。這是本專案的禮貌性保守值，不是官方額度；遇到 429 仍會遵守 `Retry-After`。`TRANSITOUS_MIN_INTERVAL_MS` 可在 1,000～60,000 毫秒內調整，且只協調單一 server process；多實例仍需共享 limiter。`TRANSITOUS_CONTACT_URL` 不能保留範例值，工具會把應用程式名稱、版本與聯絡網址放在 `User-Agent`。
+
+偶發、單一使用者的 Transitous 批次建議約 10～20 筆以內；若一次可能超過 20 筆、短時間重複匯入或部署成多人服務，請先到 Transitous 官方 Matrix 頻道說明 use case。這是操作建議，程式不會用未經官方承諾的數字硬擋使用者資料。
 
 ## 航班工作流
 
@@ -83,6 +93,8 @@ TRANSITOUS_CONTACT_URL=https://github.com/YOUR_ACCOUNT/YOUR_REPOSITORY
 4. 自動修復後，對未解決項目選擇更正交通模式、刻意排除或暫後處理。
 5. 驗證通過後下載 `TimelineRouteYYMMDD.gpx`。
 
+處理工作分為四條狀態線：步行、開車等一般路線送往 OpenRouteService；起訖點都在台灣的大眾運輸送往 TDX；其餘（包含跨境）大眾運輸送往 Transitous；三線失敗則立即排入人工審核。三個 provider lane 可彼此並行，但每線維持逐筆處理。人工重新查詢會插在該 provider 已送出中的工作之後、尚未送出的自動工作之前，並沿用相同 limiter 與既有 request timestamps，不會繞過頻率限制。
+
 隱私邊界：
 
 - 原始 Timeline JSON、Wi-Fi 掃描、使用者 profile 欄位及完整檔案內容不會 POST 到本工具 server 或任何 provider。
@@ -95,7 +107,7 @@ TRANSITOUS_CONTACT_URL=https://github.com/YOUR_ACCOUNT/YOUR_REPOSITORY
 
 ### 歷史大眾運輸限制
 
-起訖點都在台灣時使用 TDX MaaS 路線規劃；其他地區使用 Transitous 目前可用的公開 feed 與路網進行 best-effort 規劃。TDX 請求受每分鐘 5 次的本機佇列限制，繁忙時單次修復可能需要等待。兩者都以查詢當下可用的路網修復歷史 Timeline，可能與旅程當時的站點、班次或走線不同，所以結果一律標為「大眾運輸近似」並附查詢參考日期。Transitous 實作使用現行 MOTIS `/api/v6/plan`；這是相對於早期設計文件 `/api/v5/plan` 的明確 API 相容性調整。
+起訖點都在台灣時使用 TDX MaaS 路線規劃；其他地區使用 Transitous 目前可用的公開 feed 與路網進行 best-effort 規劃。TDX 預設受每 60 秒 5 次的本機佇列限制，實際值可依訂閱方案設定；Transitous 每次 attempt 預設至少間隔 5 秒。繁忙時單次修復可能需要等待。兩者都以查詢當下可用的路網修復歷史 Timeline，可能與旅程當時的站點、班次或走線不同，所以結果一律標為「大眾運輸近似」並附查詢參考日期。Transitous 實作使用現行 MOTIS `/api/v6/plan`；這是相對於早期設計文件 `/api/v5/plan` 的明確 API 相容性調整。
 
 ### 人工審核
 
@@ -137,7 +149,7 @@ macOS／Linux 可將 `npm.cmd` 與 `npx.cmd` 分別改成 `npm` 與 `npx`。
 - [Flight Plan Database API](https://flightplandatabase.com/dev/api)：航路資料僅供飛行模擬，不得用於真實世界導航；使用時遵守其署名與 API 條款。
 - [OpenRouteService API](https://openrouteservice.org/dev/) 與 [使用條款](https://openrouteservice.org/terms-of-service/)：`© openrouteservice.org by HeiGIT | Map data © OpenStreetMap contributors`；回傳結果依 CC BY 4.0 使用。
 - [OpenStreetMap 著作權與授權](https://www.openstreetmap.org/copyright)：地圖資料 © OpenStreetMap contributors，依 ODbL 使用。
-- [TDX 公共運輸旅運規劃 API](https://tdx.transportdata.tw/api-service/swagger/maas/4513f9d6-caae-4cf7-a50c-e7887bec804e) 與 [資料授權利用條款](https://tdx.transportdata.tw/term)：用於台灣境內的大眾運輸路線規劃；需申請會員 API 金鑰。免付費方案限制為每分鐘 5 次請求，並須遵守目前的使用與授權規範。
+- [TDX 公共運輸旅運規劃 API](https://tdx.transportdata.tw/api-service/swagger/maas/4513f9d6-caae-4cf7-a50c-e7887bec804e) 與 [資料授權利用條款](https://tdx.transportdata.tw/term)：用於台灣境內的大眾運輸路線規劃；需申請會員 API 金鑰。請求頻率依會員訂閱方案而異，並須遵守目前的使用與授權規範。
 - [Transitous API 與使用政策](https://transitous.org/api/) 及 [feed 來源](https://transitous.org/sources/)：公開服務為 best-effort，主要供自由／開源與非營利專案；請提供可識別的 `User-Agent` 與聯絡方式，大量或重度 routing 使用前先聯絡營運者，並遵守個別 feed 的授權／署名。
 - [Google Timeline 匯出說明](https://support.google.com/maps/answer/6258979)：僅作為使用者自行匯出資料的格式入口；Google 未贊助或背書本專案。
 

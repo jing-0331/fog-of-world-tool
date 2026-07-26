@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 import { createOpenRouteServiceClient } from "@/lib/providers/openrouteservice/client";
 import { createTdxClient } from "@/lib/providers/tdx/client";
@@ -9,37 +8,13 @@ import {
   type RepairRouteRequest,
   type RepairRouteResult,
 } from "@/lib/routing/repair-route";
+import { repairRequestSchema } from "@/lib/routing/repair-request-schema";
 import { readServerEnv } from "@/lib/server/env";
 import {
   asProviderError,
   ProviderError,
   serializeProviderError,
 } from "@/lib/server/provider-error";
-
-const pointSchema = z.object({
-  lat: z.number().min(-90).max(90),
-  lon: z.number().min(-180).max(180),
-});
-const repairableModeSchema = z.enum([
-  "walking",
-  "running",
-  "cycling",
-  "motorcycling",
-  "driving",
-  "train",
-  "subway",
-  "bus",
-  "tram",
-  "ferry",
-]);
-const requestSchema = z.object({
-  id: z.string().min(1),
-  mode: repairableModeSchema,
-  startPoint: pointSchema,
-  endPoint: pointSchema,
-  startTime: z.string().refine((value) => Number.isFinite(Date.parse(value))),
-  endTime: z.string().refine((value) => Number.isFinite(Date.parse(value))),
-});
 
 type Repair = (request: RepairRouteRequest) => Promise<RepairRouteResult>;
 
@@ -48,7 +23,7 @@ export function createRepairRouteHandler(repair: Repair) {
     let input: RepairRouteRequest;
     try {
       input = {
-        ...requestSchema.parse(await request.json()),
+        ...repairRequestSchema.parse(await request.json()),
         signal: request.signal,
       };
     } catch {
@@ -91,12 +66,15 @@ async function repairConfiguredRoute(
     async transitous(input) {
       return createTransitousClient({
         contactUrl: env.TRANSITOUS_CONTACT_URL,
+        minimumIntervalMilliseconds:
+          env.TRANSITOUS_MIN_INTERVAL_MS,
       }).route(input);
     },
     async tdx(input) {
       return createTdxClient({
         clientId: env.TDX_CLIENT_ID,
         clientSecret: env.TDX_CLIENT_SECRET,
+        requestsPerMinute: env.TDX_REQUESTS_PER_MINUTE,
       }).route(input);
     },
   });

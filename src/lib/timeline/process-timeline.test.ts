@@ -126,6 +126,49 @@ describe("processTimeline", () => {
     expect(updates.at(-1)).toEqual({ current: 2, total: 2 });
   });
 
+  it("keeps Transitous and OpenRouteService on independent lanes", async () => {
+    const transitGap = gap("transitous-pending", 0, 10, 0, 0.1);
+    const walkingGap = gap("ors-pending", 20, 30, 0.2, 0.3);
+    const releases = new Map<string, () => void>();
+    const repair = vi.fn(
+      (routeGap: TimelineRepairGap) =>
+        new Promise<ReturnType<typeof repaired>>((resolve) => {
+          releases.set(routeGap.id, () =>
+            resolve(repaired(routeGap)),
+          );
+        }),
+    );
+    const processing = processTimeline(
+      [
+        leg({
+          id: "transitous-leg",
+          mode: "bus",
+          startTime: transitGap.startTime,
+          endTime: transitGap.endTime,
+          gaps: [transitGap],
+        }),
+        leg({
+          id: "ors-leg",
+          mode: "walking",
+          startTime: walkingGap.startTime,
+          endTime: walkingGap.endTime,
+          gaps: [walkingGap],
+        }),
+      ],
+      deps({ repair }),
+    );
+
+    await vi.waitFor(() =>
+      expect(new Set(releases.keys())).toEqual(
+        new Set([transitGap.id, walkingGap.id]),
+      ),
+    );
+
+    releases.get(transitGap.id)!();
+    releases.get(walkingGap.id)!();
+    await processing;
+  });
+
   it("uses the completed count in active-lane progress messages", async () => {
     const updates: Array<{
       current: number;
