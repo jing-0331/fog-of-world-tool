@@ -7,6 +7,7 @@ import {
 import {
   repairRequestSchema,
 } from "@/lib/routing/repair-request-schema";
+import { reviewModeOptions } from "@/lib/routing/review-mode-catalog";
 
 const baseRequest = {
   id: "gap-1",
@@ -32,6 +33,20 @@ describe("repairRequestSchema", () => {
       expect(() =>
         repairRequestSchema.parse({ ...baseRequest, mode }),
       ).toThrow();
+    },
+  );
+
+  it.each(["taiwan", "international"] as const)(
+    "accepts every %s review catalog value",
+    (region) => {
+      for (const option of reviewModeOptions(region)) {
+        expect(
+          repairRequestSchema.parse({
+            ...baseRequest,
+            mode: option.value,
+          }).mode,
+        ).toBe(option.value);
+      }
     },
   );
 });

@@ -7,12 +7,14 @@ import {
 } from "@/lib/domain/provenance";
 import { TransportModeSelect } from "@/components/timeline/transport-mode-select";
 import type { UnresolvedReviewItem } from "@/components/timeline/unresolved-review";
+import { reviewRegion } from "@/lib/routing/review-mode-catalog";
 
 interface UnresolvedCardProps {
   item: UnresolvedReviewItem;
   selectedMode: TransportMode;
   pending: boolean;
   error: string | null;
+  successMessage?: string | null;
   onModeChange: (mode: TransportMode) => void;
   onRetry: () => void;
   onExclude: () => void;
@@ -24,6 +26,7 @@ export function UnresolvedCard({
   selectedMode,
   pending,
   error,
+  successMessage = null,
   onModeChange,
   onRetry,
   onExclude,
@@ -82,10 +85,20 @@ export function UnresolvedCard({
       ) : null}
 
       <TransportModeSelect
+        region={reviewRegion(gap.startPoint, gap.endPoint)}
         value={selectedMode}
         onChange={onModeChange}
         disabled={pending}
       />
+      {successMessage ? (
+        <p
+          className="review-success-status"
+          role="status"
+          aria-label={successMessage}
+        >
+          {successMessage}
+        </p>
+      ) : null}
       {error ? (
         <p className="text-sm font-medium text-rose-700" role="alert">
           {error}

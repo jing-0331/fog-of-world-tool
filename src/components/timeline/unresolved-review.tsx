@@ -3,13 +3,16 @@
 import { useState } from "react";
 
 import { UnresolvedCard } from "@/components/timeline/unresolved-card";
-import type { CorrectionStore } from "@/lib/client/correction-store";
 import type {
   RepairAttempt,
   TransportMode,
 } from "@/lib/domain/types";
-import type { RepairRouteResult } from "@/lib/routing/repair-route";
+import {
+  reviewModeSelection,
+  reviewRegion,
+} from "@/lib/routing/review-mode-catalog";
 import type { TimelineRepairGap } from "@/lib/timeline/build-legs";
+import type { ReviewDecision } from "@/lib/timeline/route-job";
 
 export interface UnresolvedReviewItem {
   gap: TimelineRepairGap;
@@ -20,24 +23,25 @@ export interface UnresolvedReviewItem {
 
 interface UnresolvedReviewProps {
   items: UnresolvedReviewItem[];
-  correctionStore: CorrectionStore;
-  retry: (
-    item: UnresolvedReviewItem,
-    mode: TransportMode,
-  ) => Promise<RepairRouteResult>;
-  onResolved: (segmentId: string) => void;
+  submitReview: (decision: ReviewDecision) => Promise<void>;
+  successMessage?: string | null;
 }
 
 export function UnresolvedReview({
   items,
-  correctionStore,
-  retry,
-  onResolved,
+  submitReview,
+  successMessage = null,
 }: UnresolvedReviewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [selectedMode, setSelectedMode] = useState<TransportMode | null>(null);
+  const [selection, setSelection] = useState<{
+    gapId: string;
+    mode: TransportMode;
+  } | null>(null);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{
+    gapId: string;
+    message: string;
+  } | null>(null);
 
   if (items.length === 0) {
     return null;
@@ -45,45 +49,34 @@ export function UnresolvedReview({
 
   const safeIndex = Math.min(currentIndex, items.length - 1);
   const item = items[safeIndex];
-  const mode = selectedMode ?? item.originalMode;
-
-  const resolveCurrent = () => {
-    setCurrentIndex(0);
-    setSelectedMode(null);
-    setError(null);
-  };
+  const region = reviewRegion(item.gap.startPoint, item.gap.endPoint);
+  const mode = reviewModeSelection(
+    region,
+    selection?.gapId === item.gap.id
+      ? selection.mode
+      : item.originalMode,
+  );
+  const error =
+    failure?.gapId === item.gap.id ? failure.message : null;
+  const interactionPending = pending || successMessage !== null;
 
   const handleRetry = async () => {
     setPending(true);
-    setError(null);
+    setFailure(null);
     try {
-      const route = await retry(item, mode);
-      const correctedRoute: RepairRouteResult = {
-        ...route,
-        provenance: {
-          ...route.provenance,
-          originalMode: item.originalMode,
-          correctedMode: mode,
-          userOverride: true,
-        },
-      };
-      await correctionStore.saveReroute({
-        segmentId: item.gap.id,
-        originalMode: item.originalMode,
-        correctedMode: mode,
-        normalizedRoute: {
-          points: correctedRoute.points,
-          provenance: correctedRoute.provenance,
-        },
+      await submitReview({
+        gapId: item.gap.id,
+        action: "reroute",
+        mode,
       });
-      onResolved(item.gap.id);
-      resolveCurrent();
     } catch (retryError) {
-      setError(
-        retryError instanceof Error
+      setFailure({
+        gapId: item.gap.id,
+        message:
+          retryError instanceof Error
           ? retryError.message
           : "重新查詢路線失敗。",
-      );
+      });
     } finally {
       setPending(false);
     }
@@ -91,18 +84,20 @@ export function UnresolvedReview({
 
   const handleExclude = async () => {
     setPending(true);
-    setError(null);
+    setFailure(null);
     try {
-      await correctionStore.saveExclusion({
-        segmentId: item.gap.id,
-        originalMode: item.originalMode,
+      await submitReview({
+        gapId: item.gap.id,
+        action: "exclude",
       });
-      onResolved(item.gap.id);
-      resolveCurrent();
     } catch (storeError) {
-      setError(
-        storeError instanceof Error ? storeError.message : "儲存決定失敗。",
-      );
+      setFailure({
+        gapId: item.gap.id,
+        message:
+          storeError instanceof Error
+            ? storeError.message
+            : "儲存決定失敗。",
+      });
     } finally {
       setPending(false);
     }
@@ -124,6 +119,7 @@ export function UnresolvedReview({
             <button
               type="button"
               className="secondary-button compact-button rounded-full border border-slate-300 px-3 py-1 text-sm"
+              disabled={interactionPending}
               onClick={() =>
                 setCurrentIndex(
                   (safeIndex - 1 + items.length) %
@@ -136,6 +132,7 @@ export function UnresolvedReview({
             <button
               type="button"
               className="secondary-button compact-button rounded-full border border-slate-300 px-3 py-1 text-sm"
+              disabled={interactionPending}
               onClick={() =>
                 setCurrentIndex((safeIndex + 1) % items.length)
               }
@@ -150,17 +147,17 @@ export function UnresolvedReview({
         key={item.gap.id}
         item={item}
         selectedMode={mode}
-        pending={pending}
+        pending={interactionPending}
         error={error}
+        successMessage={successMessage}
         onModeChange={(nextMode) => {
-          setSelectedMode(nextMode);
-          setError(null);
+          setSelection({ gapId: item.gap.id, mode: nextMode });
+          setFailure(null);
         }}
         onRetry={handleRetry}
         onExclude={handleExclude}
         onSkip={() => {
-          setError(null);
-          setSelectedMode(null);
+          setFailure(null);
           if (items.length > 1) {
             setCurrentIndex((safeIndex + 1) % items.length);
           }

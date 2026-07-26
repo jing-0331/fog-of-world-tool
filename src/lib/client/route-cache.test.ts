@@ -4,6 +4,11 @@ import {
   buildRouteCacheKey,
   createRouteCache,
 } from "@/lib/client/route-cache";
+import { routePolicy } from "@/lib/routing/mode-policy";
+import {
+  reviewModeOptions,
+  type ReviewRegion,
+} from "@/lib/routing/review-mode-catalog";
 
 const databaseNames: string[] = [];
 
@@ -63,6 +68,31 @@ describe("route cache keys", () => {
     expect(key).toContain("2026-07");
     expect(key).not.toContain("static");
   });
+
+  it.each([
+    ["taiwan", { lat: 25.0478, lon: 121.5319 }, { lat: 22.6273, lon: 120.3014 }],
+    ["international", { lat: 35.6812, lon: 139.7671 }, { lat: 25.0478, lon: 121.5319 }],
+  ] as const)(
+    "keeps every %s review mode in an independent key",
+    (region, startPoint, endPoint) => {
+      const keys = reviewModeOptions(region as ReviewRegion).map(
+        ({ value: mode }) => {
+          const policy = routePolicy(mode, startPoint, endPoint);
+          expect(policy).not.toBeNull();
+          return buildRouteCacheKey({
+            startPoint,
+            endPoint,
+            mode,
+            provider: policy!.provider,
+            algorithmVersion: "route-v1",
+            referenceDate: "2026-07-23",
+          });
+        },
+      );
+
+      expect(new Set(keys).size).toBe(keys.length);
+    },
+  );
 });
 
 describe("route cache stores", () => {

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { DateRangeSelector } from "@/components/timeline/date-range-selector";
 import { DownloadCard } from "@/components/download-card";
 import { ProgressPanel } from "@/components/progress-panel";
+import { DateRangeSelector } from "@/components/timeline/date-range-selector";
 import {
   TimelineUploader,
   type TimelineWorkerLike,
@@ -24,23 +24,25 @@ import {
 import type { TransportMode } from "@/lib/domain/types";
 import { createGpxDownload } from "@/lib/gpx/download";
 import { routePolicy } from "@/lib/routing/mode-policy";
-import type {
-  RepairRouteResult,
-} from "@/lib/routing/repair-route";
+import type { RepairRouteResult } from "@/lib/routing/repair-route";
 import { buildTimelineLegs } from "@/lib/timeline/build-legs";
-import {
-  processTimeline,
-  type ProcessTimelineResult,
-  type TimelineProcessingDependencies,
-  type TimelineProgress,
-} from "@/lib/timeline/process-timeline";
 import {
   selectTimelineDateRange,
   type TimelineDateSelection,
 } from "@/lib/timeline/date-range";
+import {
+  startTimelineProcessing,
+  type ProcessTimelineResult,
+  type TimelineProcessingDependencies,
+  type TimelineProcessingSession,
+  type TimelineProgress,
+} from "@/lib/timeline/process-timeline";
 import type { TimelineParseResult } from "@/lib/timeline/schema";
 
 const ROUTE_ALGORITHM_VERSION = "timeline-route-v1";
+const REVIEW_SUCCESS_MESSAGE =
+  "路段查詢成功，已加入輸出路線。";
+const REVIEW_SUCCESS_DELAY_MS = 800;
 
 export interface TimelineWorkflowServices {
   dependencies: TimelineProcessingDependencies;
@@ -51,34 +53,47 @@ export interface TimelineWorkflowServices {
 interface TimelineWorkflowProps {
   workerFactory?: () => TimelineWorkerLike;
   services?: TimelineWorkflowServices;
-  processFn?: typeof processTimeline;
+  startProcessingFn?: typeof startTimelineProcessing;
   createDownloadFn?: typeof createGpxDownload;
 }
 
 export function TimelineWorkflow({
   workerFactory,
   services,
-  processFn = processTimeline,
+  startProcessingFn = startTimelineProcessing,
   createDownloadFn = createGpxDownload,
 }: TimelineWorkflowProps) {
   const [activeServices] = useState<TimelineWorkflowServices>(
     () => services ?? createTimelineWorkflowServices(),
   );
-  const [parseResult, setParseResult] = useState<TimelineParseResult | null>(
-    null,
-  );
-  const [selection, setSelection] = useState<TimelineDateSelection | null>(
-    null,
-  );
+  const [parseResult, setParseResult] =
+    useState<TimelineParseResult | null>(null);
+  const [selection, setSelection] =
+    useState<TimelineDateSelection | null>(null);
   const [processing, setProcessing] = useState(false);
-  const [progress, setProgress] = useState<TimelineProgress | null>(null);
-  const [reviewItems, setReviewItems] = useState<UnresolvedReviewItem[]>([]);
+  const [progress, setProgress] = useState<TimelineProgress | null>(
+    null,
+  );
+  const [reviewItems, setReviewItems] = useState<
+    UnresolvedReviewItem[]
+  >([]);
+  const [reviewSuccess, setReviewSuccess] = useState<{
+    gapId: string;
+    message: string;
+  } | null>(null);
   const [download, setDownload] = useState<{
     url: string;
     filename: string;
     size: number;
   } | null>(null);
-  const [controller, setController] = useState<AbortController | null>(null);
+  const activeSessionRef = useRef<TimelineProcessingSession | null>(
+    null,
+  );
+  const reviewIdsRef = useRef(new Set<string>());
+  const successfulReviewIdsRef = useRef(new Set<string>());
+  const removalTimersRef = useRef(
+    new Set<ReturnType<typeof setTimeout>>(),
+  );
 
   useEffect(
     () => () => {
@@ -87,6 +102,16 @@ export function TimelineWorkflow({
       }
     },
     [download],
+  );
+  useEffect(
+    () => () => {
+      activeSessionRef.current?.cancel();
+      for (const timer of removalTimersRef.current) {
+        clearTimeout(timer);
+      }
+      removalTimersRef.current.clear();
+    },
+    [],
   );
   useEffect(
     () => () => {
@@ -104,8 +129,26 @@ export function TimelineWorkflow({
     setDownload(null);
   };
 
-  const runProcessing = async (finalizing = false) => {
-    if (!parseResult || !selection) {
+  const clearRemovalTimers = () => {
+    for (const timer of removalTimersRef.current) {
+      clearTimeout(timer);
+    }
+    removalTimersRef.current.clear();
+  };
+
+  const resetActiveProcessing = () => {
+    activeSessionRef.current?.cancel();
+    activeSessionRef.current = null;
+    clearRemovalTimers();
+    reviewIdsRef.current.clear();
+    successfulReviewIdsRef.current.clear();
+    setProcessing(false);
+    setReviewItems([]);
+    setReviewSuccess(null);
+  };
+
+  const runProcessing = () => {
+    if (!parseResult || !selection || activeSessionRef.current) {
       return;
     }
     const selectedSegments = selectTimelineDateRange(
@@ -113,69 +156,154 @@ export function TimelineWorkflow({
       selection,
     );
     const legs = buildTimelineLegs(selectedSegments);
-    const total = legs.reduce((sum, leg) => sum + leg.gaps.length, 0);
+    const total = legs.reduce(
+      (sum, leg) => sum + leg.gaps.length,
+      0,
+    );
     const invalidData = parserInvalidItems(parseResult);
-    clearDownload();
-    if (finalizing) {
-      setProgress((current) => ({
-        current: current?.total ?? total,
-        total: current?.total ?? total,
-        message: "所有路段已完成，正在建立 GPX。",
-      }));
-    } else {
-      setReviewItems([]);
-      setProgress({
-        current: 0,
-        total,
-        message: `已完成 0/${total}`,
-      });
-    }
-    setProcessing(true);
-    const nextController = new AbortController();
-    setController(nextController);
 
+    clearDownload();
+    clearRemovalTimers();
+    reviewIdsRef.current = new Set();
+    successfulReviewIdsRef.current = new Set();
+    setReviewItems([]);
+    setReviewSuccess(null);
+    setProgress({
+      current: 0,
+      total,
+      message: `已完成 0/${total}`,
+    });
+    setProcessing(true);
+
+    const updateProgress = (next: TimelineProgress) => {
+      setProgress((current) => mergeProgress(current, next));
+    };
+
+    let session: TimelineProcessingSession;
     try {
-      const nextResult = await processFn(legs, activeServices.dependencies, {
-        signal: nextController.signal,
-        ...(finalizing ? {} : { onProgress: setProgress }),
+      session = startProcessingFn(legs, activeServices.dependencies, {
+        onProgress: updateProgress,
         invalidData,
         name: "Google Timeline 路線",
       });
-      const nextReviewItems = buildReviewItems(legs, nextResult);
-      setReviewItems(nextReviewItems);
-      if (
-        nextReviewItems.length === 0 &&
-        nextResult.downloadable &&
-        nextResult.gpx
-      ) {
-        setDownload(createDownloadFn(nextResult.gpx, "timeline"));
-      }
-    } finally {
+    } catch {
       setProcessing(false);
-      setController(null);
+      return;
     }
-  };
+    activeSessionRef.current = session;
 
-  const handleReviewResolved = (segmentId: string) => {
-    const remainingItems = reviewItems.filter(
-      (item) => item.gap.id !== segmentId,
+    let finishedResult: ProcessTimelineResult | null = null;
+    let finalized = false;
+    let unsubscribe = () => {};
+
+    const finalizeIfReady = () => {
+      if (
+        finalized ||
+        finishedResult === null ||
+        activeSessionRef.current !== session ||
+        reviewIdsRef.current.size > 0
+      ) {
+        return;
+      }
+      finalized = true;
+      unsubscribe();
+      activeSessionRef.current = null;
+      setProcessing(false);
+      setReviewSuccess(null);
+      if (
+        !finishedResult.canceled &&
+        finishedResult.downloadable &&
+        finishedResult.gpx
+      ) {
+        setDownload(
+          createDownloadFn(finishedResult.gpx, "timeline"),
+        );
+      }
+    };
+
+    const removeReview = (gapId: string) => {
+      if (!reviewIdsRef.current.delete(gapId)) {
+        return;
+      }
+      setReviewItems((current) =>
+        current.filter((item) => item.gap.id !== gapId),
+      );
+      setReviewSuccess((current) =>
+        current?.gapId === gapId ? null : current,
+      );
+      setProgress((current) => {
+        if (!current) {
+          return current;
+        }
+        const completed = Math.min(
+          current.total,
+          current.current + 1,
+        );
+        return {
+          ...current,
+          current: completed,
+          message: replaceProgressCount(
+            current.message,
+            completed,
+            current.total,
+          ),
+        };
+      });
+      finalizeIfReady();
+    };
+
+    unsubscribe = session.subscribe((event) => {
+      if (activeSessionRef.current !== session) {
+        return;
+      }
+      if (event.type === "progress") {
+        updateProgress(event.progress);
+        return;
+      }
+      if (event.type === "review-enqueued") {
+        const gapId = event.item.gap.id;
+        if (reviewIdsRef.current.has(gapId)) {
+          return;
+        }
+        reviewIdsRef.current.add(gapId);
+        setReviewItems((current) => [...current, event.item]);
+        return;
+      }
+      if (event.type === "route-succeeded") {
+        if (reviewIdsRef.current.has(event.gapId)) {
+          successfulReviewIdsRef.current.add(event.gapId);
+          setReviewSuccess({
+            gapId: event.gapId,
+            message: REVIEW_SUCCESS_MESSAGE,
+          });
+        }
+        return;
+      }
+      if (successfulReviewIdsRef.current.delete(event.gapId)) {
+        const timer = setTimeout(() => {
+          removalTimersRef.current.delete(timer);
+          removeReview(event.gapId);
+        }, REVIEW_SUCCESS_DELAY_MS);
+        removalTimersRef.current.add(timer);
+        return;
+      }
+      removeReview(event.gapId);
+    });
+
+    void session.automaticDone.catch(() => undefined);
+    void session.finished.then(
+      (result) => {
+        finishedResult = result;
+        finalizeIfReady();
+      },
+      () => {
+        if (activeSessionRef.current === session) {
+          unsubscribe();
+          activeSessionRef.current = null;
+          setProcessing(false);
+        }
+      },
     );
-    setReviewItems(remainingItems);
-    setProgress((current) =>
-      current
-        ? {
-            ...current,
-            current: Math.min(current.total, current.current + 1),
-            message: `已完成 ${Math.min(
-              current.total,
-              current.current + 1,
-            )}/${current.total}`,
-          }
-        : current,
-    );
-    if (remainingItems.length === 0) {
-      void runProcessing(true);
-    }
   };
 
   return (
@@ -191,18 +319,18 @@ export function TimelineWorkflow({
       <TimelineUploader
         workerFactory={workerFactory}
         onParsed={(parsed) => {
+          resetActiveProcessing();
           clearDownload();
           setParseResult(parsed);
           setSelection(null);
           setProgress(null);
-          setReviewItems([]);
         }}
         onReset={() => {
+          resetActiveProcessing();
           clearDownload();
           setParseResult(null);
           setSelection(null);
           setProgress(null);
-          setReviewItems([]);
         }}
       />
 
@@ -218,7 +346,7 @@ export function TimelineWorkflow({
         <button
           type="button"
           className="primary-button export-button"
-          onClick={() => void runProcessing()}
+          onClick={runProcessing}
         >
           開始產生 GPX
         </button>
@@ -237,7 +365,7 @@ export function TimelineWorkflow({
             <button
               type="button"
               className="danger-button"
-              onClick={() => controller?.abort()}
+              onClick={() => activeSessionRef.current?.cancel()}
             >
               取消處理
             </button>
@@ -245,22 +373,24 @@ export function TimelineWorkflow({
         </div>
       ) : null}
 
-      {!processing && reviewItems.length > 0 ? (
+      {reviewItems.length > 0 ? (
         <div className="workflow-panel">
           <UnresolvedReview
             items={reviewItems}
-            correctionStore={activeServices.correctionStore}
-            retry={(item, mode) =>
-              requestRepair(item.gap, mode)
-            }
-            onResolved={handleReviewResolved}
+            submitReview={(decision) => {
+              const session = activeSessionRef.current;
+              return session
+                ? session.submitReview(decision)
+                : Promise.reject(
+                    new Error("時間軸處理工作已結束。"),
+                  );
+            }}
+            successMessage={reviewSuccess?.message}
           />
         </div>
       ) : null}
 
-      {download ? (
-        <DownloadCard {...download} />
-      ) : null}
+      {download ? <DownloadCard {...download} /> : null}
     </main>
   );
 }
@@ -300,10 +430,28 @@ export function createTimelineWorkflowServices(): TimelineWorkflowServices {
         route.provenance.referenceDate,
       );
       if (input) {
-        await routeCache.putRoute(buildRouteCacheKey(input), route);
+        await routeCache.putRoute(
+          buildRouteCacheKey(input),
+          route,
+        );
       }
     },
     repair: (gap) => requestRepair(gap, gap.mode, gap.signal),
+    async persistReviewDecision(decision) {
+      if (decision.action === "exclude") {
+        await correctionStore.saveExclusion({
+          segmentId: decision.gapId,
+          originalMode: decision.originalMode,
+        });
+        return;
+      }
+      await correctionStore.saveReroute({
+        segmentId: decision.gapId,
+        originalMode: decision.originalMode,
+        correctedMode: decision.correctedMode,
+        normalizedRoute: decision.normalizedRoute,
+      });
+    },
   };
 
   return {
@@ -360,14 +508,14 @@ async function requestRepair(
     error?: { message: string };
   };
   if (!response.ok || !body.data) {
-    throw new Error(body.error?.message ?? "所有路線來源皆失敗。");
+    throw new Error(
+      body.error?.message ?? "所有路線來源皆失敗。",
+    );
   }
   return body.data;
 }
 
-function parserInvalidItems(
-  parsed: TimelineParseResult,
-) {
+function parserInvalidItems(parsed: TimelineParseResult) {
   const items = [];
   if (parsed.invalid.coordinates > 0) {
     items.push({
@@ -390,34 +538,29 @@ function parserInvalidItems(
   return items;
 }
 
-function buildReviewItems(
-  legs: ReturnType<typeof buildTimelineLegs>,
-  result: ProcessTimelineResult,
-): UnresolvedReviewItem[] {
-  const unresolvedIds = new Set(
-    result.report.unresolved.map((item) => item.segmentId),
-  );
-  const probableIds = new Set(
-    result.report.skippedFlights
-      .filter((item) => item.message.includes("可能"))
-      .map((item) => item.segmentId),
-  );
+function mergeProgress(
+  current: TimelineProgress | null,
+  next: TimelineProgress,
+): TimelineProgress {
+  const completed = Math.max(current?.current ?? 0, next.current);
+  return {
+    ...next,
+    current: completed,
+    message: replaceProgressCount(
+      next.message,
+      completed,
+      next.total,
+    ),
+  };
+}
 
-  return legs.flatMap((leg) =>
-    leg.gaps
-      .filter(
-        (gap) =>
-          unresolvedIds.has(gap.id) || probableIds.has(gap.id),
-      )
-      .map((gap) => ({
-        gap,
-        originalMode: leg.mode,
-        attempts: result.report.providerAttempts.filter(
-          (attempt) => attempt.segmentId === gap.id,
-        ),
-        ...(probableIds.has(gap.id)
-          ? { warning: "probable-flight" as const }
-          : {}),
-      })),
-  );
+function replaceProgressCount(
+  message: string,
+  current: number,
+  total: number,
+): string {
+  const count = `已完成 ${current}/${total}`;
+  return /已完成 \d+\/\d+/.test(message)
+    ? message.replace(/已完成 \d+\/\d+/, count)
+    : count;
 }

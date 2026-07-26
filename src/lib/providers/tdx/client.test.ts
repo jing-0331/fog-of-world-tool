@@ -120,10 +120,13 @@ describe("TDX client", () => {
 
   it.each([
     ["train", "3,4"],
+    ["taiwan-rail", "3"],
+    ["high-speed-rail", "4"],
     ["subway", "6"],
     ["bus", "5"],
     ["tram", "7"],
     ["ferry", "8"],
+    ["funicular", "9"],
   ] as const)("maps %s to TDX transit code %s", async (mode, expected) => {
     const fetchFn = successfulFetch();
     const client = configuredClient(fetchFn);

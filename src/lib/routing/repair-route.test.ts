@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { distanceMeters } from "@/lib/geo/distance";
 import { routePolicy } from "@/lib/routing/mode-policy";
+import {
+  reviewModeOptions,
+  type ReviewRegion,
+} from "@/lib/routing/review-mode-catalog";
 import { repairRoute } from "@/lib/routing/repair-route";
 
 describe("routePolicy", () => {
@@ -23,6 +27,35 @@ describe("routePolicy", () => {
   it("does not silently treat an unknown mode as driving", () => {
     expect(routePolicy("unknown")).toBeNull();
   });
+
+  it.each([
+    [
+      "taiwan",
+      { lat: 25.0478, lon: 121.5319 },
+      { lat: 22.6273, lon: 120.3014 },
+      "tdx",
+    ],
+    [
+      "international",
+      { lat: 35.6812, lon: 139.7671 },
+      { lat: 25.0478, lon: 121.5319 },
+      "transitous",
+    ],
+  ] as const)(
+    "routes the complete %s review catalog to the intended lanes",
+    (region, startPoint, endPoint, transitProvider) => {
+      for (const option of reviewModeOptions(region as ReviewRegion)) {
+        expect(
+          routePolicy(option.value, startPoint, endPoint)?.provider,
+          option.value,
+        ).toBe(
+          option.group === "general"
+            ? "openrouteservice"
+            : transitProvider,
+        );
+      }
+    },
+  );
 });
 
 describe("repairRoute", () => {

@@ -74,6 +74,71 @@ describe("Transitous client", () => {
     });
   });
 
+  it.each([
+    ["transit", "TRANSIT"],
+    ["rail", "RAIL"],
+    ["high-speed-rail", "HIGHSPEED_RAIL"],
+    ["long-distance-rail", "LONG_DISTANCE"],
+    ["night-rail", "NIGHT_RAIL"],
+    ["regional-rail", "REGIONAL_RAIL"],
+    ["suburban-rail", "SUBURBAN"],
+    ["subway", "SUBWAY"],
+    ["bus", "BUS"],
+    ["coach", "COACH"],
+    ["tram", "TRAM"],
+    ["ferry", "FERRY"],
+    ["funicular", "FUNICULAR"],
+    ["aerial-lift", "AERIAL_LIFT"],
+    ["other-transit", "OTHER"],
+  ] as const)(
+    "maps international review mode %s to MOTIS %s",
+    async (mode, expected) => {
+      const encoded = polyline.encode(
+        [
+          [35.6812, 139.7671],
+          [35.6896, 139.7006],
+        ],
+        6,
+      );
+      const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          itineraries: [
+            {
+              legs: [
+                {
+                  legGeometry: {
+                    points: encoded,
+                    precision: 6,
+                    length: 2,
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      const client = createTransitousClient({
+        contactUrl: "https://example.test/fog-tool",
+        fetchFn,
+        requestLimiter: {
+          acquire: vi.fn().mockResolvedValue(undefined),
+        },
+      });
+
+      await client.route({
+        mode,
+        startPoint: { lat: 35.6812, lon: 139.7671 },
+        endPoint: { lat: 35.6896, lon: 139.7006 },
+      });
+
+      expect(
+        new URL(String(fetchFn.mock.calls[0][0])).searchParams.get(
+          "transitModes",
+        ),
+      ).toBe(expected);
+    },
+  );
+
   it("counts every routing retry against the shared request limiter", async () => {
     const encoded = polyline.encode(
       [

@@ -1,0 +1,43 @@
+{
+  "semanticSegments": [
+    {
+      "startTime": "2026-03-01T08:00:00Z",
+      "endTime": "2026-03-01T08:30:00Z",
+      "activity": {
+        "start": { "latLng": "geo:10.0000000,10.0000000" },
+        "end": { "latLng": "geo:10.1000000,10.1000000" },
+        "topCandidate": { "type": "WALKING", "probability": 0.8 }
+      }
+    },
+    {
+      "startTime": "2026-03-01T09:00:00Z",
+      "endTime": "2026-03-01T09:30:00Z",
+      "activity": {
+        "start": { "latLng": "geo:11.0000000,11.0000000" },
+        "end": { "latLng": "geo:11.1000000,11.1000000" },
+        "topCandidate": {
+          "type": "IN_PASSENGER_VEHICLE",
+          "probability": 0.8
+        }
+      }
+    },
+    {
+      "startTime": "2026-03-01T10:00:00Z",
+      "endTime": "2026-03-01T10:30:00Z",
+      "activity": {
+        "start": { "latLng": "geo:12.0000000,12.0000000" },
+        "end": { "latLng": "geo:12.1000000,12.1000000" },
+        "topCandidate": { "type": "WALKING", "probability": 0.8 }
+      }
+    },
+    {
+      "startTime": "2026-03-01T11:00:00Z",
+      "endTime": "2026-03-01T11:30:00Z",
+      "activity": {
+        "start": { "latLng": "geo:25.0000000,121.0000000" },
+        "end": { "latLng": "geo:25.1000000,121.1000000" },
+        "topCandidate": { "type": "IN_BUS", "probability": 0.8 }
+      }
+    }
+  ]
+}

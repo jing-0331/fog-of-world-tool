@@ -76,6 +76,9 @@ describe("startTimelineProcessing", () => {
       [leg("foreign-bus", "bus", foreignGap("foreign-bus"))],
       dependencies({
         repair,
+        async putCachedRoute() {
+          order.push("cache:reroute");
+        },
         async persistReviewDecision(decision) {
           order.push(`persist:${decision.action}`);
         },
@@ -111,6 +114,7 @@ describe("startTimelineProcessing", () => {
     ]);
     expect(order).toEqual([
       "provider:walking",
+      "cache:reroute",
       "persist:reroute",
       "event:route-succeeded",
       "event:review-removed",
@@ -160,6 +164,33 @@ describe("startTimelineProcessing", () => {
     expect(finished.report.userExcluded).toEqual([
       expect.objectContaining({ segmentId: "excluded" }),
     ]);
+  });
+
+  it("rejects review submissions after cancellation", async () => {
+    const session = startTimelineProcessing(
+      [leg("canceled", "walking", foreignGap("canceled"))],
+      dependencies({
+        repair: vi.fn(async () => {
+          throw noRoute("查無路線");
+        }),
+      }),
+    );
+    await session.automaticDone;
+
+    session.cancel();
+
+    await expect(
+      session.submitReview({
+        gapId: "canceled",
+        action: "reroute",
+        mode: "driving",
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    await expect(session.finished).resolves.toMatchObject({
+      canceled: true,
+      downloadable: false,
+      gpx: null,
+    });
   });
 });
 

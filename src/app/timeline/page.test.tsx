@@ -1,4 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -6,12 +12,14 @@ import {
   TimelineWorkflow,
   type TimelineWorkflowServices,
 } from "@/app/timeline/page";
-import type {
-  processTimeline,
-  ProcessTimelineResult,
-} from "@/lib/timeline/process-timeline";
-import type { TimelineParseResult } from "@/lib/timeline/schema";
 import type { TimelineWorkerLike } from "@/components/timeline/timeline-uploader";
+import type { ProcessTimelineResult } from "@/lib/timeline/process-timeline";
+import type {
+  TimelineProcessingEvent,
+  TimelineProcessingSession,
+} from "@/lib/timeline/process-timeline";
+import type { ReviewQueueItem } from "@/lib/timeline/route-job";
+import type { TimelineParseResult } from "@/lib/timeline/schema";
 
 const parseResult: TimelineParseResult = {
   segments: [
@@ -28,35 +36,6 @@ const parseResult: TimelineParseResult = {
     },
   ],
   dateRange: { min: "2026-01-01", max: "2026-01-03" },
-  invalid: { coordinates: 0, missingTime: 0, segments: 0 },
-};
-
-const twoGapParseResult: TimelineParseResult = {
-  segments: [
-    {
-      id: "first-gap",
-      startTime: "2026-01-01T00:00:00Z",
-      endTime: "2026-01-01T00:30:00Z",
-      activity: {
-        type: "WALKING",
-        startPoint: { lat: 0, lon: 0 },
-        endPoint: { lat: 0.1, lon: 0 },
-      },
-      timelinePath: [],
-    },
-    {
-      id: "second-gap",
-      startTime: "2026-01-02T00:00:00Z",
-      endTime: "2026-01-02T00:30:00Z",
-      activity: {
-        type: "IN_PASSENGER_VEHICLE",
-        startPoint: { lat: 1, lon: 0 },
-        endPoint: { lat: 1.1, lon: 0 },
-      },
-      timelinePath: [],
-    },
-  ],
-  dateRange: { min: "2026-01-01", max: "2026-01-02" },
   invalid: { coordinates: 0, missingTime: 0, segments: 0 },
 };
 
@@ -86,254 +65,241 @@ describe("TimelineWorkflow", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps unresolved work visible and withholds the partial download", async () => {
+  it("appends live review events without resetting the current choice", async () => {
     const user = userEvent.setup();
-    let resolveProcessing!: (result: ProcessTimelineResult) => void;
-    const processFn = vi.fn((legs, _dependencies, options) => {
-      options?.onProgress?.({
-        current: 0,
-        total: 1,
-        message: "已完成 0/1",
-      });
-      return new Promise<ProcessTimelineResult>((resolve) => {
-        resolveProcessing = resolve;
+    const controlled = controlledSession();
+    renderWorkflow({ controlled });
+    await startWorkflow(user);
+
+    act(() => {
+      controlled.emit({
+        type: "review-enqueued",
+        item: reviewItem("first", "第一段失敗"),
       });
     });
-    renderWorkflow({ processFn });
-    await upload(user);
-    await screen.findByText("上傳完成");
-    await user.click(screen.getByRole("radio", { name: "全部時間" }));
-    await user.click(screen.getByRole("button", { name: "開始產生 GPX" }));
-
-    expect(screen.getByText("已完成 0/1")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "取消處理" })).toBeInTheDocument();
-
-    const legs = processFn.mock.calls[0][0];
-    const gapId = legs[0].gaps[0].id;
-    resolveProcessing(
-      result({
-        report: {
-          ...emptyReport(),
-          unresolved: [
-            {
-              segmentId: gapId,
-              message: "所有可用路線來源均失敗：合成失敗",
-            },
-          ],
-          providerAttempts: [
-            {
-              segmentId: gapId,
-              source: "openrouteservice",
-              status: "failed",
-              message: "合成失敗",
-              retryable: false,
-            },
-          ],
-        },
-        partial: true,
-        warning: "部分路段未能加入 GPX；下載前請查看處理報告。",
-      }),
-    );
 
     expect(
       await screen.findByRole("heading", { name: "待人工確認路段" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "取消處理" }))
+      .toBeInTheDocument();
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "修正交通方式" }),
+      "bus",
+    );
+
+    act(() => {
+      controlled.emit({
+        type: "review-enqueued",
+        item: reviewItem("second", "第二段失敗"),
+      });
+      controlled.emit({
+        type: "review-enqueued",
+        item: reviewItem("first", "重複事件"),
+      });
+    });
+
+    expect(screen.getByText("1 / 2")).toBeInTheDocument();
     expect(
-      screen.queryByRole("heading", { name: "處理報告" }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText("時間軸記錄")).not.toBeInTheDocument();
-    expect(screen.queryByText("Google 時間軸")).not.toBeInTheDocument();
-    expect(screen.getAllByText(/合成失敗/)).toHaveLength(1);
-    expect(
-      screen.queryByText(/部分路段未能加入 GPX/),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("progressbar"),
-    ).toHaveAttribute("value", "0");
-    expect(screen.getByRole("progressbar")).toHaveAttribute("max", "1");
-    expect(screen.queryByText(/2.0 KB/)).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("link", { name: /下載 GPX 檔案/ }),
-    ).not.toBeInTheDocument();
+      (screen.getByRole("combobox", {
+        name: "修正交通方式",
+      }) as HTMLSelectElement).value,
+    ).toBe("bus");
+    expect(screen.getByText(/第一段失敗/)).toBeInTheDocument();
+    expect(screen.queryByText(/第二段失敗/)).not.toBeInTheDocument();
   });
 
-  it("increments reviews in place and downloads only at full progress", async () => {
+  it("submits the chosen mode through the processing session", async () => {
     const user = userEvent.setup();
-    let invocation = 0;
-    const processFn = vi.fn(
-      async (
-        legs: Parameters<typeof processTimeline>[0],
-        _dependencies: Parameters<typeof processTimeline>[1],
-        options: Parameters<typeof processTimeline>[2],
-      ) => {
-        invocation += 1;
-        const gapIds = legs.flatMap((leg) =>
-          leg.gaps.map((gap) => gap.id),
-        );
-        if (invocation === 1) {
-          options?.onProgress?.({
-            current: 0,
-            total: gapIds.length,
-            message: `已完成 0/${gapIds.length}`,
-          });
-          return result({
-            report: {
-              ...emptyReport(),
-              unresolved: gapIds.map((segmentId) => ({
-                segmentId,
-                message: "需要人工確認",
-              })),
-            },
-            partial: true,
-          });
-        }
-        return result();
-      },
-    );
-    renderWorkflow({
-      workerFactory: () => worker(twoGapParseResult),
-      processFn,
+    const controlled = controlledSession();
+    renderWorkflow({ controlled });
+    await startWorkflow(user);
+    act(() => {
+      controlled.emit({
+        type: "review-enqueued",
+        item: reviewItem("reroute", "需要修正"),
+      });
     });
 
-    await upload(user);
-    await screen.findByText("上傳完成");
-    await user.click(screen.getByRole("radio", { name: "全部時間" }));
-    await user.click(screen.getByRole("button", { name: "開始產生 GPX" }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "修正交通方式" }),
+      "bus",
+    );
+    await user.click(screen.getByRole("button", { name: "重新查詢" }));
 
+    expect(controlled.submitReview).toHaveBeenCalledWith({
+      gapId: "reroute",
+      action: "reroute",
+      mode: "bus",
+    });
+  });
+
+  it("announces persisted success before advancing to the next review", async () => {
+    const user = userEvent.setup();
+    const provider = deferred<void>();
+    const persistence = deferred<void>();
+    const controlled = controlledSession();
+    controlled.submitReview.mockImplementation(async (decision) => {
+      await provider.promise;
+      await persistence.promise;
+      controlled.emit({
+        type: "route-succeeded",
+        gapId: decision.gapId,
+        lane: "openrouteservice",
+      });
+      controlled.emit({
+        type: "review-removed",
+        gapId: decision.gapId,
+      });
+    });
+    renderWorkflow({ controlled });
+    await startWorkflow(user);
+    act(() => {
+      controlled.emit({
+        type: "review-enqueued",
+        item: reviewItem("first", "第一段失敗"),
+      });
+      controlled.emit({
+        type: "review-enqueued",
+        item: reviewItem("second", "第二段失敗"),
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: "重新查詢" }));
     expect(
-      await screen.findByRole("heading", { name: "待人工確認路段" }),
+      screen.queryByText("路段查詢成功，已加入輸出路線。"),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      provider.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      screen.queryByText("路段查詢成功，已加入輸出路線。"),
+    ).not.toBeInTheDocument();
+
+    await act(async () => {
+      persistence.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      screen.getByText("路段查詢成功，已加入輸出路線。"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "0");
-    expect(screen.getByRole("progressbar")).toHaveAttribute("max", "2");
+    expect(screen.getByText(/第一段失敗/)).toBeInTheDocument();
+    expect(screen.queryByText(/第二段失敗/)).not.toBeInTheDocument();
+
+    expect(
+      await screen.findByText(/第二段失敗/, {}, { timeout: 2_000 }),
+    ).toBeInTheDocument();
+    expect(
+      within(
+        screen.getByRole("region", {
+          name: "待人工確認路段",
+        }),
+      ).getByText("1 / 1"),
+    ).toBeInTheDocument();
+  });
+
+  it("waits for finished and an empty review queue before offering download", async () => {
+    const user = userEvent.setup();
+    const controlled = controlledSession();
+    renderWorkflow({ controlled });
+    await startWorkflow(user);
+    act(() => {
+      controlled.emit({
+        type: "progress",
+        progress: {
+          current: 0,
+          total: 1,
+          message: "已完成 0/1",
+        },
+      });
+      controlled.emit({
+        type: "review-enqueued",
+        item: reviewItem("last", "最後一段失敗"),
+      });
+      controlled.automatic.resolve(
+        result({ downloadable: false, gpx: null, partial: true }),
+      );
+    });
+
     expect(
       screen.queryByRole("link", { name: /下載 GPX 檔案/ }),
     ).not.toBeInTheDocument();
 
-    await user.click(
-      screen.getByRole("button", { name: "此路段不存在" }),
-    );
+    act(() => {
+      controlled.emit({ type: "review-removed", gapId: "last" });
+      controlled.finished.resolve(result());
+    });
 
-    expect(processFn).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "1");
-    expect(screen.getByText("1 / 1")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("link", { name: /下載 GPX 檔案/ }),
-    ).not.toBeInTheDocument();
-
-    await user.click(
-      screen.getByRole("button", { name: "此路段不存在" }),
-    );
-
-    await waitFor(() => expect(processFn).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "2");
-    expect(screen.getByRole("progressbar")).toHaveAttribute("max", "2");
     expect(
       await screen.findByRole("link", {
         name: "下載 GPX 檔案：TimelineRoute260723.gpx",
       }),
     ).toHaveAttribute("download", "TimelineRoute260723.gpx");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "1");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("max", "1");
   });
 
-  it("shows each review card only its own repair failure", async () => {
+  it("cancels the active session and never exposes its incomplete GPX", async () => {
     const user = userEvent.setup();
-    const processFn = vi.fn(
-      async (legs: Parameters<typeof processTimeline>[0]) => {
-        const gapIds = legs.flatMap((leg) =>
-          leg.gaps.map((gap) => gap.id),
-        );
-        return result({
-          report: {
-            ...emptyReport(),
-            unresolved: gapIds.map((segmentId, index) => ({
-              segmentId,
-              message: `所有可用路線來源均失敗：第${index + 1}段失敗`,
-            })),
-            providerAttempts: gapIds.map((segmentId, index) => ({
-              segmentId,
-              source: "openrouteservice",
-              status: "failed",
-              message: `第${index + 1}段失敗`,
-              retryable: false,
-            })),
-          },
-          partial: true,
-        });
-      },
-    );
-    renderWorkflow({
-      workerFactory: () => worker(twoGapParseResult),
-      processFn,
+    const controlled = controlledSession();
+    controlled.cancel.mockImplementation(() => {
+      controlled.finished.resolve(
+        result({
+          segments: [],
+          gpx: null,
+          downloadable: false,
+          canceled: true,
+        }),
+      );
     });
+    renderWorkflow({ controlled });
+    await startWorkflow(user);
 
-    await upload(user);
-    await screen.findByText("上傳完成");
-    await user.click(screen.getByRole("radio", { name: "全部時間" }));
-    await user.click(screen.getByRole("button", { name: "開始產生 GPX" }));
-
-    expect(await screen.findByText(/第1段失敗/)).toBeInTheDocument();
-    expect(screen.queryByText(/第2段失敗/)).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "下一段" }));
-
-    expect(screen.queryByText(/第1段失敗/)).not.toBeInTheDocument();
-    expect(screen.getByText(/第2段失敗/)).toBeInTheDocument();
-  });
-
-  it("aborts processing and exposes no download for zero routes", async () => {
-    const user = userEvent.setup();
-    let observedSignal: AbortSignal | undefined;
-    let resolveProcessing!: (result: ProcessTimelineResult) => void;
-    const processFn = vi.fn((_legs, _dependencies, options) => {
-      observedSignal = options?.signal;
-      return new Promise<ProcessTimelineResult>((resolve) => {
-        resolveProcessing = resolve;
-      });
-    });
-    renderWorkflow({ processFn });
-    await upload(user);
-    await screen.findByText("上傳完成");
-    await user.click(screen.getByRole("radio", { name: "全部時間" }));
-    await user.click(screen.getByRole("button", { name: "開始產生 GPX" }));
     await user.click(screen.getByRole("button", { name: "取消處理" }));
-    expect(observedSignal?.aborted).toBe(true);
-    resolveProcessing(
-      result({
-        segments: [],
-        gpx: null,
-        downloadable: false,
-        canceled: true,
-      }),
-    );
 
+    expect(controlled.cancel).toHaveBeenCalledOnce();
     await waitFor(() =>
-      expect(screen.queryByText("取消處理")).not.toBeInTheDocument(),
+      expect(
+        screen.queryByRole("button", { name: "取消處理" }),
+      ).not.toBeInTheDocument(),
     );
     expect(
       screen.queryByRole("link", { name: /下載 GPX 檔案/ }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("heading", { name: "處理報告" }),
-    ).not.toBeInTheDocument();
   });
 });
 
-function renderWorkflow(
-  overrides: Partial<
-    React.ComponentProps<typeof TimelineWorkflow>
-  > = {},
-) {
-  return render(
-    <TimelineWorkflow
-      workerFactory={() => worker()}
-      services={services()}
-      createDownloadFn={() => ({
-        url: "blob:synthetic",
-        filename: "TimelineRoute260723.gpx",
-        size: 2_048,
-      })}
-      {...overrides}
-    />,
-  );
+function renderWorkflow({
+  controlled = controlledSession(),
+}: {
+  controlled?: ReturnType<typeof controlledSession>;
+} = {}) {
+  const startProcessingFn = vi.fn(() => controlled.session);
+  return {
+    controlled,
+    startProcessingFn,
+    rendered: render(
+      <TimelineWorkflow
+        workerFactory={() => worker()}
+        services={services()}
+        startProcessingFn={startProcessingFn}
+        createDownloadFn={() => ({
+          url: "blob:synthetic",
+          filename: "TimelineRoute260723.gpx",
+          size: 2_048,
+        })}
+      />,
+    ),
+  };
+}
+
+async function startWorkflow(user: ReturnType<typeof userEvent.setup>) {
+  await upload(user);
+  await screen.findByText("上傳完成");
+  await user.click(screen.getByRole("radio", { name: "全部時間" }));
+  await user.click(screen.getByRole("button", { name: "開始產生 GPX" }));
 }
 
 async function upload(user: ReturnType<typeof userEvent.setup>) {
@@ -341,6 +307,77 @@ async function upload(user: ReturnType<typeof userEvent.setup>) {
     screen.getByLabelText("選擇 Google 時間軸 JSON"),
     new File(["{}"], "timeline.json", { type: "application/json" }),
   );
+}
+
+function controlledSession() {
+  const listeners = new Set<
+    (event: TimelineProcessingEvent) => void
+  >();
+  const automatic = deferred<ProcessTimelineResult>();
+  const finished = deferred<ProcessTimelineResult>();
+  const submitReview = vi.fn<
+    TimelineProcessingSession["submitReview"]
+  >().mockResolvedValue(undefined);
+  const cancel = vi.fn();
+  const session: TimelineProcessingSession = {
+    automaticDone: automatic.promise,
+    finished: finished.promise,
+    submitReview,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    cancel,
+  };
+  return {
+    automatic,
+    finished,
+    submitReview,
+    cancel,
+    session,
+    emit(event: TimelineProcessingEvent) {
+      listeners.forEach((listener) => listener(event));
+    },
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function reviewItem(
+  id: string,
+  message: string,
+): ReviewQueueItem {
+  return {
+    gap: {
+      id,
+      mode: "driving",
+      startPoint: { lat: 35.6812, lon: 139.7671 },
+      endPoint: { lat: 35.6896, lon: 139.7006 },
+      startTime: "2026-01-01T00:00:00Z",
+      endTime: "2026-01-01T00:30:00Z",
+      distanceMeters: 5_000,
+      elapsedMilliseconds: 1_800_000,
+    },
+    originalMode: "driving",
+    attemptedMode: "driving",
+    lane: "openrouteservice",
+    attempts: [
+      {
+        source: "openrouteservice",
+        status: "failed",
+        message,
+        retryable: false,
+      },
+    ],
+  };
 }
 
 function worker(result = parseResult): TimelineWorkerLike {
@@ -398,24 +435,20 @@ function result(
         },
       },
     ],
-    report: emptyReport(),
+    report: {
+      automaticSuccess: [],
+      userCorrectedSuccess: [],
+      userExcluded: [],
+      skippedFlights: [],
+      unresolved: [],
+      invalidData: [],
+      providerAttempts: [],
+    },
     gpx: "<gpx />",
     downloadable: true,
     partial: false,
     warning: null,
     canceled: false,
     ...overrides,
-  };
-}
-
-function emptyReport() {
-  return {
-    automaticSuccess: [],
-    userCorrectedSuccess: [],
-    userExcluded: [],
-    skippedFlights: [],
-    unresolved: [],
-    invalidData: [],
-    providerAttempts: [],
   };
 }
