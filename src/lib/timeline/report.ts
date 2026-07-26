@@ -14,18 +14,6 @@ export function createProcessingReport(
   };
 }
 
-export function processingReportCounts(report: ProcessingReport) {
-  return {
-    automaticSuccess: report.automaticSuccess.length,
-    userCorrectedSuccess: report.userCorrectedSuccess.length,
-    userExcluded: report.userExcluded.length,
-    skippedFlights: report.skippedFlights.length,
-    unresolved: report.unresolved.length,
-    invalidData: report.invalidData.length,
-    providerAttempts: report.providerAttempts.length,
-  };
-}
-
 export function reportHasPartialResults(report: ProcessingReport): boolean {
   return (
     report.userExcluded.length > 0 ||

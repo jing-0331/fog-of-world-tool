@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   createProcessingReport,
-  processingReportCounts,
   reportHasPartialResults,
 } from "@/lib/timeline/report";
 
@@ -26,15 +25,6 @@ describe("processing report", () => {
       ],
     });
 
-    expect(processingReportCounts(report)).toEqual({
-      automaticSuccess: 1,
-      userCorrectedSuccess: 1,
-      userExcluded: 1,
-      skippedFlights: 1,
-      unresolved: 1,
-      invalidData: 1,
-      providerAttempts: 1,
-    });
     expect(reportHasPartialResults(report)).toBe(true);
   });
 

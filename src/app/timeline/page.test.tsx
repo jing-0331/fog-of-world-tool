@@ -86,15 +86,14 @@ describe("TimelineWorkflow", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows only the review queue after processing, plus size and download", async () => {
+  it("keeps unresolved work visible and withholds the partial download", async () => {
     const user = userEvent.setup();
     let resolveProcessing!: (result: ProcessTimelineResult) => void;
     const processFn = vi.fn((legs, _dependencies, options) => {
       options?.onProgress?.({
-        stage: "repair",
-        current: 1,
+        current: 0,
         total: 1,
-        message: "修補路段 1/1",
+        message: "已完成 0/1",
       });
       return new Promise<ProcessTimelineResult>((resolve) => {
         resolveProcessing = resolve;
@@ -106,7 +105,7 @@ describe("TimelineWorkflow", () => {
     await user.click(screen.getByRole("radio", { name: "全部時間" }));
     await user.click(screen.getByRole("button", { name: "開始產生 GPX" }));
 
-    expect(screen.getByText("修補路段 1/1")).toBeInTheDocument();
+    expect(screen.getByText("已完成 0/1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "取消處理" })).toBeInTheDocument();
 
     const legs = processFn.mock.calls[0][0];
@@ -148,9 +147,88 @@ describe("TimelineWorkflow", () => {
     expect(
       screen.queryByText(/部分路段未能加入 GPX/),
     ).not.toBeInTheDocument();
-    expect(screen.getByText(/2.0 KB/)).toBeInTheDocument();
     expect(
-      screen.getByRole("link", {
+      screen.getByRole("progressbar"),
+    ).toHaveAttribute("value", "0");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("max", "1");
+    expect(screen.queryByText(/2.0 KB/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /下載 GPX 檔案/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("increments reviews in place and downloads only at full progress", async () => {
+    const user = userEvent.setup();
+    let invocation = 0;
+    const processFn = vi.fn(
+      async (
+        legs: Parameters<typeof processTimeline>[0],
+        _dependencies: Parameters<typeof processTimeline>[1],
+        options: Parameters<typeof processTimeline>[2],
+      ) => {
+        invocation += 1;
+        const gapIds = legs.flatMap((leg) =>
+          leg.gaps.map((gap) => gap.id),
+        );
+        if (invocation === 1) {
+          options?.onProgress?.({
+            current: 0,
+            total: gapIds.length,
+            message: `已完成 0/${gapIds.length}`,
+          });
+          return result({
+            report: {
+              ...emptyReport(),
+              unresolved: gapIds.map((segmentId) => ({
+                segmentId,
+                message: "需要人工確認",
+              })),
+            },
+            partial: true,
+          });
+        }
+        return result();
+      },
+    );
+    renderWorkflow({
+      workerFactory: () => worker(twoGapParseResult),
+      processFn,
+    });
+
+    await upload(user);
+    await screen.findByText("上傳完成");
+    await user.click(screen.getByRole("radio", { name: "全部時間" }));
+    await user.click(screen.getByRole("button", { name: "開始產生 GPX" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "待人工確認路段" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "0");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("max", "2");
+    expect(
+      screen.queryByRole("link", { name: /下載 GPX 檔案/ }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "此路段不存在" }),
+    );
+
+    expect(processFn).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "1");
+    expect(screen.getByText("1 / 1")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /下載 GPX 檔案/ }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "此路段不存在" }),
+    );
+
+    await waitFor(() => expect(processFn).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("progressbar")).toHaveAttribute("value", "2");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("max", "2");
+    expect(
+      await screen.findByRole("link", {
         name: "下載 GPX 檔案：TimelineRoute260723.gpx",
       }),
     ).toHaveAttribute("download", "TimelineRoute260723.gpx");

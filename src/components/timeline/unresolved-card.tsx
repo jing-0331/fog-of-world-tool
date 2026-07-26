@@ -36,12 +36,12 @@ export function UnresolvedCard({
         <p>
           <span className="font-semibold">開始：</span>
           {formatLocalTime(gap.startTime)} ·{" "}
-          <span>{item.startLocation ?? coordinateLabel(gap.startPoint)}</span>
+          <span>{coordinateLabel(gap.startPoint)}</span>
         </p>
         <p>
           <span className="font-semibold">結束：</span>
           {formatLocalTime(gap.endTime)} ·{" "}
-          <span>{item.endLocation ?? coordinateLabel(gap.endPoint)}</span>
+          <span>{coordinateLabel(gap.endPoint)}</span>
         </p>
         <p>
           <span className="font-semibold">直線距離：</span>
@@ -77,9 +77,7 @@ export function UnresolvedCard({
           className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"
           role="status"
         >
-          {item.warning === "probable-flight"
-            ? "可能是飛行或位置異常，請確認後再選擇交通方式。"
-            : "可能是位置異常，請確認這段移動是否真的存在。"}
+          可能是飛行或位置異常，請確認後再選擇交通方式。
         </p>
       ) : null}
 
