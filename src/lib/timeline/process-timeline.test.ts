@@ -126,6 +126,70 @@ describe("processTimeline", () => {
     expect(updates.at(-1)).toEqual({ current: 2, total: 2 });
   });
 
+  it("uses the completed count in active-lane progress messages", async () => {
+    const updates: Array<{
+      current: number;
+      total: number;
+      message: string;
+    }> = [];
+    const tdxGap = taiwanGap("tdx-pending", 0, 10);
+    const regularDone = gap("regular-done", 20, 30, 0, 0.1);
+    const regularPending = gap("regular-pending", 40, 50, 0.2, 0.3);
+    let finishTdxRepair!: () => void;
+    let finishRegularRepair!: () => void;
+    const processing = processTimeline(
+      [
+        leg({
+          id: "tdx-leg",
+          mode: "bus",
+          startTime: tdxGap.startTime,
+          endTime: tdxGap.endTime,
+          gaps: [tdxGap],
+        }),
+        leg({
+          id: "regular-leg",
+          mode: "walking",
+          startTime: regularDone.startTime,
+          endTime: regularPending.endTime,
+          gaps: [regularDone, regularPending],
+        }),
+      ],
+      deps({
+        repair: vi.fn(async (routeGap: TimelineRepairGap) => {
+          if (routeGap.id === tdxGap.id) {
+            await new Promise<void>((resolve) => {
+              finishTdxRepair = resolve;
+            });
+          }
+          if (routeGap.id === regularPending.id) {
+            await new Promise<void>((resolve) => {
+              finishRegularRepair = resolve;
+            });
+          }
+          return repaired(routeGap);
+        }),
+      }),
+      {
+        onProgress: (progress) => updates.push(progress),
+      },
+    );
+
+    await vi.waitFor(() =>
+      expect(finishRegularRepair).toBeTypeOf("function"),
+    );
+    try {
+      expect(updates.at(-1)).toEqual({
+        current: 1,
+        total: 3,
+        message: "正在處理一般路段；已完成 1/3",
+      });
+    } finally {
+      finishTdxRepair();
+      finishRegularRepair();
+      await processing;
+    }
+  });
+
   it("advances progress only after a repaired route is stored", async () => {
     const updates: Array<{ current: number; total: number }> = [];
     let finishRepair!: () => void;

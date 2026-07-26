@@ -171,8 +171,8 @@ export async function processTimeline(
     let providerRepairCompleted = false;
     reportProgress(
       lane === "tdx"
-        ? `正在處理 TDX 路段 ${index + 1}/${gaps.length}`
-        : `正在處理路段 ${index + 1}/${gaps.length}`,
+        ? `正在處理 TDX 路段；已完成 ${completedGapIds.size}/${gaps.length}`
+        : `正在處理一般路段；已完成 ${completedGapIds.size}/${gaps.length}`,
     );
 
     try {
@@ -211,7 +211,7 @@ export async function processTimeline(
           repairFailed: false,
         });
         reportProgress(
-          `路段 ${index + 1} 需要人工確認；已完成 ${completedGapIds.size}/${gaps.length}`,
+          `有路段需要人工確認；已完成 ${completedGapIds.size}/${gaps.length}`,
         );
         return "completed";
       }
@@ -342,7 +342,7 @@ export async function processTimeline(
         repairFailed: providerRepairStarted && !providerRepairCompleted,
       });
       reportProgress(
-        `路段 ${index + 1} 需要人工確認；已完成 ${completedGapIds.size}/${gaps.length}`,
+        `有路段需要人工確認；已完成 ${completedGapIds.size}/${gaps.length}`,
       );
       return "completed";
     }
