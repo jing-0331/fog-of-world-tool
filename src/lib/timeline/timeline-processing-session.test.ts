@@ -18,7 +18,7 @@ describe("startTimelineProcessing", () => {
       [
         leg("ors", "walking", foreignGap("ors")),
         leg("transitous", "bus", foreignGap("transitous")),
-        leg("tdx", "bus", taiwanGap("tdx")),
+        leg("tdx", "train", taiwanGap("tdx")),
       ],
       dependencies({
         repair: vi.fn(async () => {
