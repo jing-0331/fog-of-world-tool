@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { CachedRoute } from "@/lib/client/route-cache";
 import { distanceMeters } from "@/lib/geo/distance";
 import {
   processTimeline,
@@ -558,6 +559,51 @@ describe("processTimeline", () => {
 
     expect(dependencies.repair).not.toHaveBeenCalled();
     expect(result.segments[0].provenance.source).toBe("openrouteservice");
+  });
+
+  it("reuses an identical TDX route completed earlier in the same run", async () => {
+    const first = taiwanGap("tdx-first", 0, 10);
+    const duplicate = taiwanGap("tdx-duplicate", 20, 30);
+    let storedRoute: CachedRoute | null = null;
+    const getCachedRoute = vi.fn(async () => storedRoute);
+    const putCachedRoute = vi.fn(
+      async (
+        _gap: TimelineRepairGap,
+        _mode: TimelineRepairGap["mode"],
+        route: CachedRoute,
+      ) => {
+        storedRoute = route;
+      },
+    );
+    const repair = vi.fn(async (routeGap: TimelineRepairGap) =>
+      repaired(routeGap),
+    );
+
+    const result = await processTimeline(
+      [
+        leg({
+          mode: "bus",
+          startTime: first.startTime,
+          endTime: duplicate.endTime,
+          gaps: [first, duplicate],
+        }),
+      ],
+      deps({ getCachedRoute, putCachedRoute, repair }),
+    );
+
+    expect(repair).toHaveBeenCalledTimes(1);
+    expect(repair).toHaveBeenCalledWith(
+      expect.objectContaining({ id: first.id, mode: "bus" }),
+    );
+    expect(putCachedRoute).toHaveBeenCalledTimes(1);
+    expect(result.segments.map(({ id }) => id)).toEqual([
+      `${first.id}:repair`,
+      `${duplicate.id}:repair`,
+    ]);
+    expect(result.segments[1].points[0].time).toBe(duplicate.startTime);
+    expect(result.segments[1].points.at(-1)?.time).toBe(
+      duplicate.endTime,
+    );
   });
 
   it("applies a saved normalized user correction before cache or providers", async () => {

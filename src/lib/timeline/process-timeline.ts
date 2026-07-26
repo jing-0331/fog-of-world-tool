@@ -220,10 +220,20 @@ export async function processTimeline(
         correction?.action === "reroute"
           ? correction.normalizedRoute
           : undefined;
+      let latestCachedRoute = cachedRoute;
+      if (latestCachedRoute === null && lane === "tdx") {
+        latestCachedRoute = await dependencies.getCachedRoute(
+          gap,
+          effectiveMode,
+        );
+        if (options.signal?.aborted) {
+          return "canceled";
+        }
+      }
       let route: CachedRoute | RepairRouteResult;
       let attempts: RepairRouteResult["attempts"] = [];
-      if (cachedRoute) {
-        route = cachedRoute;
+      if (latestCachedRoute) {
+        route = latestCachedRoute;
       } else {
         providerRepairStarted = true;
         const repaired = await dependencies.repair({
@@ -238,7 +248,7 @@ export async function processTimeline(
       if (options.signal?.aborted) {
         return "canceled";
       }
-      if (!savedRoute && cachedRoute === null) {
+      if (!savedRoute && latestCachedRoute === null) {
         await dependencies.putCachedRoute(gap, effectiveMode, {
           points: route.points,
           provenance: route.provenance,
@@ -263,7 +273,13 @@ export async function processTimeline(
         id: `${gap.id}:repair`,
         name: `時間軸修補 ${index + 1}`,
         mode: effectiveMode,
-        points: normalizePoints(route.points, gap.startTime, gap.endTime),
+        points: normalizePoints(
+          latestCachedRoute
+            ? pointsWithoutTimes(route.points)
+            : route.points,
+          gap.startTime,
+          gap.endTime,
+        ),
         provenance,
       };
       segments.push(segment);
@@ -622,7 +638,7 @@ async function retryContiguousGapGroups(
         name: "合併修補路徑",
         mode,
         points: normalizePoints(
-          route.points,
+          cached ? pointsWithoutTimes(route.points) : route.points,
           mergedGap.startTime,
           mergedGap.endTime,
         ),
@@ -778,6 +794,14 @@ function normalizePoints(
     interpolateRouteTimes(points, startTime, endTime),
     { maxDistanceMeters: 2_000 },
   );
+}
+
+function pointsWithoutTimes(points: GeoPoint[]): GeoPoint[] {
+  return points.map((point) => {
+    const geometry = { ...point };
+    delete geometry.time;
+    return geometry;
+  });
 }
 
 function compareLegs(left: TimelineLeg, right: TimelineLeg): number {
