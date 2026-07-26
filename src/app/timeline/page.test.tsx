@@ -128,6 +128,65 @@ describe("requestRepair", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("returns a validated route repair payload", async () => {
+    const data = {
+      points: [
+        { lat: 0, lon: 0, time: "2026-01-01T00:00:00Z" },
+        { lat: 0.1, lon: 0.1, time: "2026-01-01T00:10:00Z" },
+      ],
+      provenance: {
+        kind: "ground-route",
+        source: "openrouteservice",
+        referenceDate: null,
+        approximate: true,
+        explanation: "Synthetic repaired route.",
+        originalMode: "driving",
+      },
+      attempts: [
+        {
+          source: "openrouteservice",
+          status: "success",
+          message: "Synthetic repaired route.",
+          retryable: false,
+        },
+      ],
+    } as const;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ data })),
+    );
+
+    await expect(
+      requestRepair(syntheticGap, "driving"),
+    ).resolves.toEqual(data);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects a malformed success payload without exposing it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          data: {
+            privateProviderDetail: "must not escape",
+          },
+        }),
+      ),
+    );
+
+    await expect(
+      requestRepair(syntheticGap, "driving"),
+    ).rejects.toMatchObject({
+      code: "provider_unavailable",
+      message: "Provider is unavailable.",
+      retryable: true,
+      status: 200,
+    });
+
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("TimelineWorkflow", () => {

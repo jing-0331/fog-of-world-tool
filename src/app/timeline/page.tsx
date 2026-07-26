@@ -43,24 +43,86 @@ import type { TimelineParseResult } from "@/lib/timeline/schema";
 import { ProviderError } from "@/lib/server/provider-error";
 
 const ROUTE_ALGORITHM_VERSION = "timeline-route-v1";
+const providerErrorCodeSchema = z.enum([
+  "no_data",
+  "rate_limited",
+  "auth",
+  "quota",
+  "network",
+  "provider_unavailable",
+]);
+const transportModeSchema = z.enum([
+  "walking",
+  "running",
+  "cycling",
+  "motorcycling",
+  "driving",
+  "train",
+  "subway",
+  "bus",
+  "tram",
+  "ferry",
+  "flying",
+  "unknown",
+]);
+const routeSourceSchema = z.enum([
+  "google-timeline",
+  "opensky",
+  "aerodatabox",
+  "flight-plan-database",
+  "openrouteservice",
+  "tdx",
+  "transitous",
+  "local-calculation",
+  "user",
+]);
 const repairErrorSchema = z.object({
   error: z.object({
-    code: z.enum([
-      "no_data",
-      "rate_limited",
-      "auth",
-      "quota",
-      "network",
-      "provider_unavailable",
-    ]),
+    code: providerErrorCodeSchema,
     message: z.string().min(1),
     retryable: z.boolean(),
   }),
 });
 const repairSuccessSchema = z.object({
-  data: z.custom<RepairRouteResult>(
-    (value) => value !== null && typeof value === "object",
-  ),
+  data: z.object({
+    points: z
+      .array(
+        z.object({
+          lat: z.number().min(-90).max(90),
+          lon: z.number().min(-180).max(180),
+          time: z.string().optional(),
+          elevationMeters: z.number().optional(),
+        }),
+      )
+      .min(2),
+    provenance: z.object({
+      kind: z.enum([
+        "recorded-timeline",
+        "actual-track",
+        "filed-plan",
+        "simulated-plan",
+        "direct-line",
+        "ground-route",
+        "transit-route",
+      ]),
+      source: routeSourceSchema,
+      referenceDate: z.string().nullable(),
+      approximate: z.boolean(),
+      explanation: z.string().min(1),
+      originalMode: transportModeSchema.optional(),
+      correctedMode: transportModeSchema.optional(),
+      userOverride: z.boolean().optional(),
+    }),
+    attempts: z.array(
+      z.object({
+        source: routeSourceSchema,
+        status: z.enum(["success", "failed", "skipped"]),
+        code: providerErrorCodeSchema.optional(),
+        message: z.string().min(1),
+        retryable: z.boolean(),
+      }),
+    ),
+  }),
 });
 
 export interface TimelineWorkflowServices {
