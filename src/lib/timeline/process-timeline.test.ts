@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type {
+  GeoPoint,
+  TransportMode,
+} from "@/lib/domain/types";
 import { distanceMeters } from "@/lib/geo/distance";
 import {
   processTimeline,
+  startTimelineProcessing,
   type TimelineProcessingDependencies,
 } from "@/lib/timeline/process-timeline";
 import type {
@@ -168,6 +173,161 @@ describe("processTimeline", () => {
     releases.get(walkingGap.id)!();
     await processing;
   });
+
+  it("coalesces adjacent Taiwan public-transit legs into one TDX job before dispatch", async () => {
+    const first = routingLeg({
+      id: "taiwan-bus-a-b",
+      mode: "bus",
+      startMinute: 0,
+      endMinute: 10,
+      start: { lat: 22, lon: 120 },
+      end: { lat: 23, lon: 121 },
+    });
+    const second = routingLeg({
+      id: "taiwan-bus-x-c",
+      mode: "bus",
+      startMinute: 12,
+      startSecond: 59,
+      endMinute: 30,
+      start: { lat: 25, lon: 122 },
+      end: { lat: 24, lon: 120 },
+    });
+    const repair = vi.fn(async (routeGap: TimelineRepairGap) =>
+      transitRepaired(routeGap, "tdx"),
+    );
+
+    const lanes: string[] = [];
+    const session = startTimelineProcessing(
+      [first, second],
+      deps({ repair }),
+    );
+    session.subscribe((event) => {
+      if (event.type === "route-succeeded") {
+        lanes.push(event.lane);
+      }
+    });
+    const result = await session.automaticDone;
+
+    expect(repair).toHaveBeenCalledTimes(1);
+    expect(lanes).toEqual(["tdx"]);
+    expect(result.report.automaticSuccess).toHaveLength(1);
+    expect(result.report.providerAttempts).toHaveLength(1);
+    const request = repair.mock.calls[0][0];
+    expect(request).toMatchObject({
+      mode: "bus",
+      startPoint: first.points[0],
+      endPoint: second.points.at(-1),
+      startTime: first.startTime,
+      endTime: second.endTime,
+    });
+    expect(request.id).toContain(first.id);
+    expect(request.id).toContain(second.id);
+  });
+
+  it("coalesces a four-leg overseas public-transit chain into one Transitous job", async () => {
+    const first = routingLeg({
+      id: "overseas-ferry-a-b",
+      mode: "ferry",
+      startMinute: 0,
+      endMinute: 10,
+      start: { lat: -10, lon: 10 },
+      end: { lat: -11, lon: 11 },
+    });
+    const second = routingLeg({
+      id: "overseas-ferry-x-c",
+      mode: "ferry",
+      startMinute: 11,
+      endMinute: 20,
+      start: { lat: 30, lon: -30 },
+      end: { lat: 31, lon: -31 },
+    });
+    const third = routingLeg({
+      id: "overseas-ferry-y-d",
+      mode: "ferry",
+      startMinute: 22,
+      endMinute: 30,
+      start: { lat: -40, lon: 40 },
+      end: { lat: -41, lon: 41 },
+    });
+    const fourth = routingLeg({
+      id: "overseas-ferry-z-e",
+      mode: "ferry",
+      startMinute: 32,
+      endMinute: 45,
+      start: { lat: 50, lon: -50 },
+      end: { lat: 51, lon: -51 },
+    });
+    const repair = vi.fn(async (routeGap: TimelineRepairGap) =>
+      transitRepaired(routeGap, "transitous"),
+    );
+
+    const lanes: string[] = [];
+    const session = startTimelineProcessing(
+      [first, second, third, fourth],
+      deps({ repair }),
+    );
+    session.subscribe((event) => {
+      if (event.type === "route-succeeded") {
+        lanes.push(event.lane);
+      }
+    });
+    const result = await session.automaticDone;
+
+    expect(repair).toHaveBeenCalledTimes(1);
+    expect(lanes).toEqual(["transitous"]);
+    expect(result.report.automaticSuccess).toHaveLength(1);
+    expect(result.report.providerAttempts).toHaveLength(1);
+    const request = repair.mock.calls[0][0];
+    expect(request).toMatchObject({
+      mode: "ferry",
+      startPoint: first.points[0],
+      endPoint: fourth.points.at(-1),
+      startTime: first.startTime,
+      endTime: fourth.endTime,
+    });
+    expect(request.id).toContain(first.id);
+    expect(request.id).toContain(fourth.id);
+  });
+
+  it.each(["walking", "driving"] as const)(
+    "keeps adjacent %s legs as two OpenRouteService jobs",
+    async (mode) => {
+      const first = routingLeg({
+        id: `${mode}-a-b`,
+        mode,
+        startMinute: 0,
+        endMinute: 10,
+        start: { lat: 1, lon: 1 },
+        end: { lat: 2, lon: 2 },
+      });
+      const second = routingLeg({
+        id: `${mode}-x-c`,
+        mode,
+        startMinute: 12,
+        startSecond: 59,
+        endMinute: 30,
+        start: { lat: 40, lon: 40 },
+        end: { lat: 41, lon: 41 },
+      });
+      const repair = vi.fn(
+        async (routeGap: TimelineRepairGap) =>
+          repaired(routeGap),
+      );
+
+      await processTimeline(
+        [first, second],
+        deps({ repair }),
+      );
+
+      expect(repair).toHaveBeenCalledTimes(2);
+      expect(
+        repair.mock.calls.map(([request]) => request.id),
+      ).toEqual([
+        first.gaps[0].id,
+        second.gaps[0].id,
+      ]);
+    },
+  );
 
   it("uses the completed count in active-lane progress messages", async () => {
     const updates: Array<{
@@ -1015,6 +1175,26 @@ function repaired(routeGap: TimelineRepairGap) {
   };
 }
 
+function transitRepaired(
+  routeGap: TimelineRepairGap,
+  source: "tdx" | "transitous",
+) {
+  const route = repaired(routeGap);
+  return {
+    ...route,
+    provenance: {
+      ...route.provenance,
+      kind: "transit-route" as const,
+      source,
+      referenceDate: "2026-07-26",
+    },
+    attempts: route.attempts.map((attempt) => ({
+      ...attempt,
+      source,
+    })),
+  };
+}
+
 function noRoute(message: string): ProviderError {
   return new ProviderError({
     code: "no_data",
@@ -1039,6 +1219,48 @@ function leg(
     unmatched: false,
     ...overrides,
   };
+}
+
+interface RoutingLegInput {
+  id: string;
+  mode: TransportMode;
+  startMinute: number;
+  startSecond?: number;
+  endMinute: number;
+  endSecond?: number;
+  start: Omit<GeoPoint, "time">;
+  end: Omit<GeoPoint, "time">;
+}
+
+function routingLeg(input: RoutingLegInput): TimelineLeg {
+  const startPoint = {
+    ...input.start,
+    time: at(input.startMinute, input.startSecond),
+  };
+  const endPoint = {
+    ...input.end,
+    time: at(input.endMinute, input.endSecond),
+  };
+  const routeGap: TimelineRepairGap = {
+    id: `${input.id}:gap`,
+    mode: input.mode,
+    startPoint,
+    endPoint,
+    startTime: startPoint.time,
+    endTime: endPoint.time,
+    distanceMeters: distanceMeters(startPoint, endPoint),
+    elapsedMilliseconds:
+      Date.parse(endPoint.time) - Date.parse(startPoint.time),
+  };
+  return leg({
+    id: input.id,
+    sourceSegmentId: `${input.id}:source`,
+    mode: input.mode,
+    startTime: startPoint.time,
+    endTime: endPoint.time,
+    points: [startPoint, endPoint],
+    gaps: [routeGap],
+  });
 }
 
 function gap(
@@ -1171,6 +1393,8 @@ function point(lat: number, minute: number) {
   return { lat, lon: 0, time: at(minute) };
 }
 
-function at(minute: number): string {
-  return new Date(Date.UTC(2026, 0, 1, 0, minute)).toISOString();
+function at(minute: number, second = 0): string {
+  return new Date(
+    Date.UTC(2026, 0, 1, 0, minute, second),
+  ).toISOString();
 }
