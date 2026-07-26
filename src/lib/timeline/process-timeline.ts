@@ -81,6 +81,17 @@ interface ProcessedGap {
   segmentId?: string;
 }
 
+interface PreparedGap {
+  index: number;
+  leg: TimelineLeg;
+  gap: TimelineRepairGap;
+  correction: StoredCorrection | null;
+  effectiveMode: TransportMode;
+  cachedRoute: CachedRoute | null;
+  preparationError?: unknown;
+  lane: "regular" | "tdx";
+}
+
 export async function processTimeline(
   legs: TimelineLeg[],
   dependencies: TimelineProcessingDependencies,
@@ -133,21 +144,40 @@ export async function processTimeline(
     });
   }
 
-  for (let index = 0; index < gaps.length; index += 1) {
+  const preparedGaps = await Promise.all(
+    gaps.map(({ leg, gap }, index) =>
+      prepareGap(index, leg, gap, dependencies),
+    ),
+  );
+  if (options.signal?.aborted) {
+    return canceledResult(report);
+  }
+
+  const processGap = async ({
+    index,
+    leg,
+    gap,
+    correction,
+    effectiveMode,
+    cachedRoute,
+    preparationError,
+    lane,
+  }: PreparedGap): Promise<"completed" | "canceled"> => {
     if (options.signal?.aborted) {
-      return canceledResult(report);
+      return "canceled";
     }
-    const { leg, gap } = gaps[index];
-    let effectiveMode = defaultRepairMode(leg.mode, gap.distanceMeters);
     let groupable = false;
     let providerRepairStarted = false;
     let providerRepairCompleted = false;
-    reportProgress(`正在處理路段 ${index + 1}/${gaps.length}`);
+    reportProgress(
+      lane === "tdx"
+        ? `正在處理 TDX 路段 ${index + 1}/${gaps.length}`
+        : `正在處理路段 ${index + 1}/${gaps.length}`,
+    );
 
     try {
-      const correction = await dependencies.getCorrection(gap);
-      if (options.signal?.aborted) {
-        return canceledResult(report);
+      if (preparationError !== undefined) {
+        throw preparationError;
       }
       if (correction?.action === "exclude") {
         report.userExcluded.push({
@@ -164,13 +194,9 @@ export async function processTimeline(
         });
         completedGapIds.add(gap.id);
         reportProgress(`已完成 ${completedGapIds.size}/${gaps.length}`);
-        continue;
+        return "completed";
       }
 
-      effectiveMode =
-        correction?.action === "reroute" && correction.correctedMode
-          ? correction.correctedMode
-          : defaultRepairMode(leg.mode, gap.distanceMeters);
       groupable = correction === null;
       if (routePolicy(effectiveMode) === null) {
         report.unresolved.push({
@@ -187,22 +213,17 @@ export async function processTimeline(
         reportProgress(
           `路段 ${index + 1} 需要人工確認；已完成 ${completedGapIds.size}/${gaps.length}`,
         );
-        continue;
+        return "completed";
       }
 
       const savedRoute =
         correction?.action === "reroute"
           ? correction.normalizedRoute
           : undefined;
-      const cached =
-        savedRoute ?? (await dependencies.getCachedRoute(gap, effectiveMode));
-      if (options.signal?.aborted) {
-        return canceledResult(report);
-      }
       let route: CachedRoute | RepairRouteResult;
       let attempts: RepairRouteResult["attempts"] = [];
-      if (cached) {
-        route = cached;
+      if (cachedRoute) {
+        route = cachedRoute;
       } else {
         providerRepairStarted = true;
         const repaired = await dependencies.repair({
@@ -215,13 +236,16 @@ export async function processTimeline(
         attempts = repaired.attempts;
       }
       if (options.signal?.aborted) {
-        return canceledResult(report);
+        return "canceled";
       }
-      if (!savedRoute && cached === null) {
+      if (!savedRoute && cachedRoute === null) {
         await dependencies.putCachedRoute(gap, effectiveMode, {
           points: route.points,
           provenance: route.provenance,
         });
+      }
+      if (options.signal?.aborted) {
+        return "canceled";
       }
 
       const userCorrected =
@@ -269,9 +293,10 @@ export async function processTimeline(
       });
       completedGapIds.add(gap.id);
       reportProgress(`已完成 ${completedGapIds.size}/${gaps.length}`);
+      return "completed";
     } catch (error) {
       if (isAbortError(error) || options.signal?.aborted) {
-        return canceledResult(report);
+        return "canceled";
       }
 
       const providerError = asProviderError(error);
@@ -319,8 +344,32 @@ export async function processTimeline(
       reportProgress(
         `路段 ${index + 1} 需要人工確認；已完成 ${completedGapIds.size}/${gaps.length}`,
       );
+      return "completed";
     }
+  };
+
+  const runLane = async (
+    lane: PreparedGap[],
+  ): Promise<"completed" | "canceled"> => {
+    for (const item of lane) {
+      if ((await processGap(item)) === "canceled") {
+        return "canceled";
+      }
+    }
+    return "completed";
+  };
+  const [regularLaneResult, tdxLaneResult] = await Promise.all([
+    runLane(preparedGaps.filter(({ lane }) => lane === "regular")),
+    runLane(preparedGaps.filter(({ lane }) => lane === "tdx")),
+  ]);
+  if (regularLaneResult === "canceled" || tdxLaneResult === "canceled") {
+    return canceledResult(report);
   }
+  processedGaps.sort(
+    (left, right) =>
+      left.gap.startTime.localeCompare(right.gap.startTime) ||
+      left.gap.id.localeCompare(right.gap.id),
+  );
 
   const mergedRetry = await retryContiguousGapGroups(
     processedGaps,
@@ -386,6 +435,74 @@ export async function processTimeline(
   return completeResult(normalizedSegments, report, gpx, true);
 }
 
+async function prepareGap(
+  index: number,
+  leg: TimelineLeg,
+  gap: TimelineRepairGap,
+  dependencies: TimelineProcessingDependencies,
+): Promise<PreparedGap> {
+  let correction: StoredCorrection | null = null;
+  let effectiveMode = defaultRepairMode(leg.mode, gap.distanceMeters);
+
+  try {
+    correction = await dependencies.getCorrection(gap);
+    effectiveMode =
+      correction?.action === "reroute" && correction.correctedMode
+        ? correction.correctedMode
+        : effectiveMode;
+
+    if (
+      correction?.action === "exclude" ||
+      routePolicy(effectiveMode) === null
+    ) {
+      return {
+        index,
+        leg,
+        gap,
+        correction,
+        effectiveMode,
+        cachedRoute: null,
+        lane: "regular",
+      };
+    }
+
+    const savedRoute =
+      correction?.action === "reroute"
+        ? correction.normalizedRoute
+        : undefined;
+    const cachedRoute =
+      savedRoute ?? (await dependencies.getCachedRoute(gap, effectiveMode));
+    const selectedPolicy = routePolicy(
+      effectiveMode,
+      gap.startPoint,
+      gap.endPoint,
+    );
+    return {
+      index,
+      leg,
+      gap,
+      correction,
+      effectiveMode,
+      cachedRoute,
+      lane:
+        cachedRoute === null && selectedPolicy?.provider === "tdx"
+          ? "tdx"
+          : "regular",
+    };
+  } catch (preparationError) {
+    return {
+      index,
+      leg,
+      gap,
+      correction,
+      effectiveMode,
+      cachedRoute: null,
+      preparationError,
+      lane: "regular",
+    };
+  }
+}
+
 function defaultRepairMode(
   mode: TransportMode,
   gapDistanceMeters: number,
@@ -410,13 +527,14 @@ async function retryContiguousGapGroups(
   onResolved: (gapIds: string[]) => void,
   signal?: AbortSignal,
 ): Promise<"completed" | "canceled"> {
-  for (const group of contiguousGapGroups(processedGaps)) {
-    if (
-      group.length < 2 ||
-      !group.some((item) => item.repairFailed)
-    ) {
-      continue;
-    }
+  const retryGroups = contiguousGapGroups(processedGaps).filter(
+    (group) =>
+      group.length >= 2 &&
+      group.some((item) => item.repairFailed),
+  );
+  const retryGroup = async (
+    group: ProcessedGap[],
+  ): Promise<"completed" | "canceled"> => {
     if (signal?.aborted) {
       return "canceled";
     }
@@ -538,8 +656,36 @@ async function retryContiguousGapGroups(
         });
       }
     }
-  }
-  return "completed";
+    return "completed";
+  };
+  const runLane = async (
+    groups: ProcessedGap[][],
+  ): Promise<"completed" | "canceled"> => {
+    for (const group of groups) {
+      if ((await retryGroup(group)) === "canceled") {
+        return "canceled";
+      }
+    }
+    return "completed";
+  };
+  const isTdxGroup = (group: ProcessedGap[]) => {
+    const first = group[0];
+    const last = group.at(-1)!;
+    return (
+      routePolicy(
+        first.effectiveMode!,
+        first.gap.startPoint,
+        last.gap.endPoint,
+      )?.provider === "tdx"
+    );
+  };
+  const [regularLaneResult, tdxLaneResult] = await Promise.all([
+    runLane(retryGroups.filter((group) => !isTdxGroup(group))),
+    runLane(retryGroups.filter(isTdxGroup)),
+  ]);
+  return regularLaneResult === "canceled" || tdxLaneResult === "canceled"
+    ? "canceled"
+    : "completed";
 }
 
 function contiguousGapGroups(

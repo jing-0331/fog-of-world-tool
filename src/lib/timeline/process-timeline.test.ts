@@ -53,9 +53,83 @@ describe("processTimeline", () => {
     ]);
   });
 
-  it("advances progress only after a route finishes successfully", async () => {
+  it("keeps TDX and regular routes on independent sequential lanes", async () => {
+    const updates: Array<{ current: number; total: number }> = [];
+    const tdxGap = taiwanGap("tdx-pending", 0, 10);
+    const regularGap = gap("regular", 20, 30, 0, 0.1);
+    let finishTdxRepair!: () => void;
+    let finishRegularStore!: () => void;
+    const repair = vi.fn(
+      async (routeGap: TimelineRepairGap) => {
+        if (routeGap.id === tdxGap.id) {
+          await new Promise<void>((resolve) => {
+            finishTdxRepair = resolve;
+          });
+        }
+        return repaired(routeGap);
+      },
+    );
+    const putCachedRoute = vi.fn(
+      async (routeGap: TimelineRepairGap) => {
+        if (routeGap.id === regularGap.id) {
+          await new Promise<void>((resolve) => {
+            finishRegularStore = resolve;
+          });
+        }
+      },
+    );
+    const processing = processTimeline(
+      [
+        leg({
+          id: "tdx-leg",
+          mode: "bus",
+          startTime: tdxGap.startTime,
+          endTime: tdxGap.endTime,
+          gaps: [tdxGap],
+        }),
+        leg({
+          id: "regular-leg",
+          mode: "walking",
+          startTime: regularGap.startTime,
+          endTime: regularGap.endTime,
+          gaps: [regularGap],
+        }),
+      ],
+      deps({ repair, putCachedRoute }),
+      {
+        onProgress: ({ current, total }) => {
+          updates.push({ current, total });
+        },
+      },
+    );
+
+    await vi.waitFor(() => expect(finishTdxRepair).toBeTypeOf("function"));
+    try {
+      await vi.waitFor(() =>
+        expect(finishRegularStore).toBeTypeOf("function"),
+      );
+      expect(updates.at(-1)).toEqual({ current: 0, total: 2 });
+
+      finishRegularStore();
+      await vi.waitFor(() =>
+        expect(updates.at(-1)).toEqual({ current: 1, total: 2 }),
+      );
+    } finally {
+      finishTdxRepair();
+      await vi.waitFor(() =>
+        expect(finishRegularStore).toBeTypeOf("function"),
+      );
+      finishRegularStore();
+      await processing;
+    }
+
+    expect(updates.at(-1)).toEqual({ current: 2, total: 2 });
+  });
+
+  it("advances progress only after a repaired route is stored", async () => {
     const updates: Array<{ current: number; total: number }> = [];
     let finishRepair!: () => void;
+    let finishStore!: () => void;
     const routeGap = gap("pending", 0, 10, 0, 0.1);
     const processing = processTimeline(
       [leg({ gaps: [routeGap] })],
@@ -64,6 +138,12 @@ describe("processTimeline", () => {
           () =>
             new Promise<ReturnType<typeof repaired>>((resolve) => {
               finishRepair = () => resolve(repaired(routeGap));
+            }),
+        ),
+        putCachedRoute: vi.fn(
+          () =>
+            new Promise<void>((resolve) => {
+              finishStore = resolve;
             }),
         ),
       }),
@@ -78,6 +158,10 @@ describe("processTimeline", () => {
     expect(updates.at(-1)).toEqual({ current: 0, total: 1 });
 
     finishRepair();
+    await vi.waitFor(() => expect(finishStore).toBeTypeOf("function"));
+    expect(updates.at(-1)).toEqual({ current: 0, total: 1 });
+
+    finishStore();
     await processing;
 
     expect(updates.at(-1)).toEqual({ current: 1, total: 1 });
@@ -187,6 +271,62 @@ describe("processTimeline", () => {
         }),
       }),
     );
+  });
+
+  it("keeps merged TDX retries from blocking regular merged retries", async () => {
+    const tdxFirst = taiwanGap("tdx-a", 0, 10, 0);
+    const tdxSecond = taiwanGap("tdx-b", 10, 20, 1);
+    const regularFirst = gap("regular-a", 30, 40, 0, 0.1);
+    const regularSecond = gap("regular-b", 40, 50, 0.1, 0.2);
+    const tdxMergedId = `merged:${tdxFirst.id}:${tdxSecond.id}`;
+    const regularMergedId =
+      `merged:${regularFirst.id}:${regularSecond.id}`;
+    let finishTdxMerged!: () => void;
+    let regularMergedStarted = false;
+    const repair = vi.fn(async (routeGap: TimelineRepairGap) => {
+      if (
+        routeGap.id === tdxFirst.id ||
+        routeGap.id === regularFirst.id
+      ) {
+        throw noRoute(`${routeGap.id} failed`);
+      }
+      if (routeGap.id === tdxMergedId) {
+        await new Promise<void>((resolve) => {
+          finishTdxMerged = resolve;
+        });
+      }
+      if (routeGap.id === regularMergedId) {
+        regularMergedStarted = true;
+      }
+      return repaired(routeGap);
+    });
+    const processing = processTimeline(
+      [
+        leg({
+          id: "tdx-group",
+          mode: "bus",
+          startTime: tdxFirst.startTime,
+          endTime: tdxSecond.endTime,
+          gaps: [tdxFirst, tdxSecond],
+        }),
+        leg({
+          id: "regular-group",
+          mode: "walking",
+          startTime: regularFirst.startTime,
+          endTime: regularSecond.endTime,
+          gaps: [regularFirst, regularSecond],
+        }),
+      ],
+      deps({ repair }),
+    );
+
+    await vi.waitFor(() => expect(finishTdxMerged).toBeTypeOf("function"));
+    try {
+      await vi.waitFor(() => expect(regularMergedStarted).toBe(true));
+    } finally {
+      finishTdxMerged();
+      await processing;
+    }
   });
 
   it("only sends the originally failed gap to review after the merged retry also fails", async () => {
@@ -684,6 +824,38 @@ function gapAtDistance(id: string, meters: number): TimelineRepairGap {
     distanceMeters: meters,
     elapsedMilliseconds:
       Date.parse(endPoint.time!) - Date.parse(startPoint.time!),
+  };
+}
+
+function taiwanGap(
+  id: string,
+  startMinute: number,
+  endMinute: number,
+  startIndex = 0,
+): TimelineRepairGap {
+  const coordinates = [
+    { lat: 25.0478, lon: 121.5319 },
+    { lat: 25.033, lon: 121.5654 },
+    { lat: 25.0143, lon: 121.4637 },
+  ];
+  const startPoint = {
+    ...coordinates[startIndex],
+    time: at(startMinute),
+  };
+  const endPoint = {
+    ...coordinates[startIndex + 1],
+    time: at(endMinute),
+  };
+  return {
+    id,
+    mode: "bus",
+    startPoint,
+    endPoint,
+    startTime: startPoint.time,
+    endTime: endPoint.time,
+    distanceMeters: distanceMeters(startPoint, endPoint),
+    elapsedMilliseconds:
+      Date.parse(endPoint.time) - Date.parse(startPoint.time),
   };
 }
 
