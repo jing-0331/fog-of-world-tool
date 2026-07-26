@@ -18,7 +18,9 @@ const sources = [
   },
   {
     name: "OpenRouteService",
-    href: "https://openrouteservice.org/dev/",
+    href: "https://giscience.github.io/openrouteservice/frequently-asked-questions.html#when-and-how-does-my-quota-reset",
+    quota:
+      "Directions 官方限制（2026-07-26 確認）：rolling 60 秒最多 40 次，預設 rolling 24 小時 2,000 次。本工具只在單一 server process 內排隊 Directions 呼叫；多實例部署需要共享 limiter。帳戶 dashboard、x-ratelimit-remaining 與 x-ratelimit-reset 回應標頭才是目前剩餘額度的準據。reverse geocoding 不共用 Directions 額度。",
     description:
       "地面路線修復。© openrouteservice.org by HeiGIT；路圖資料 © OpenStreetMap contributors。",
   },
@@ -97,6 +99,9 @@ export default function DataSourcesPage() {
                   {source.name}
                 </a>
                 <p className="mt-1 text-slate-700">{source.description}</p>
+                {"quota" in source ? (
+                  <p className="mt-1 text-slate-700">{source.quota}</p>
+                ) : null}
               </li>
             ))}
           </ul>

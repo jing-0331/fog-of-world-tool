@@ -3,6 +3,10 @@ import { z } from "zod";
 import type { GeoPoint } from "@/lib/domain/types";
 import { fetchWithRetry } from "@/lib/server/fetch-with-retry";
 import { ProviderError } from "@/lib/server/provider-error";
+import {
+  createSlidingWindowRateLimiter,
+  type RequestRateLimiter,
+} from "@/lib/server/sliding-window-rate-limiter";
 
 export type OpenRouteServiceProfile =
   | "foot-walking"
@@ -12,6 +16,7 @@ export type OpenRouteServiceProfile =
 interface OpenRouteServiceClientOptions {
   apiKey: string;
   fetchFn?: typeof fetch;
+  requestLimiter?: RequestRateLimiter;
 }
 
 interface OpenRouteServiceRouteRequest {
@@ -49,13 +54,23 @@ const reverseResponseSchema = z.object({
   ),
 });
 
+const sharedDirectionsLimiter = createSlidingWindowRateLimiter({
+  limit: 40,
+  windowMilliseconds: 60_000,
+});
+
 export function createOpenRouteServiceClient({
   apiKey,
   fetchFn = fetch,
+  requestLimiter = sharedDirectionsLimiter,
 }: OpenRouteServiceClientOptions) {
   const headers = {
     Authorization: apiKey,
     "Content-Type": "application/json",
+  };
+  const rateLimitedDirectionsFetch: typeof fetch = async (input, init) => {
+    await requestLimiter.acquire(init?.signal ?? undefined);
+    return fetchFn(input, init);
   };
 
   return {
@@ -73,7 +88,7 @@ export function createOpenRouteServiceClient({
           }),
           signal: request.signal,
         },
-        { fetchFn },
+        { fetchFn: rateLimitedDirectionsFetch },
       );
 
       const parsed = routeResponseSchema.safeParse(await response.json());

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { z } from "zod";
 
 import { DateRangeSelector } from "@/components/timeline/date-range-selector";
 import { DownloadCard } from "@/components/download-card";
@@ -39,8 +40,90 @@ import {
   type TimelineDateSelection,
 } from "@/lib/timeline/date-range";
 import type { TimelineParseResult } from "@/lib/timeline/schema";
+import { ProviderError } from "@/lib/server/provider-error";
 
 const ROUTE_ALGORITHM_VERSION = "timeline-route-v1";
+const providerErrorCodeSchema = z.enum([
+  "no_data",
+  "rate_limited",
+  "auth",
+  "quota",
+  "network",
+  "provider_unavailable",
+]);
+const transportModeSchema = z.enum([
+  "walking",
+  "running",
+  "cycling",
+  "motorcycling",
+  "driving",
+  "train",
+  "subway",
+  "bus",
+  "tram",
+  "ferry",
+  "flying",
+  "unknown",
+]);
+const routeSourceSchema = z.enum([
+  "google-timeline",
+  "opensky",
+  "aerodatabox",
+  "flight-plan-database",
+  "openrouteservice",
+  "tdx",
+  "transitous",
+  "local-calculation",
+  "user",
+]);
+const repairErrorSchema = z.object({
+  error: z.object({
+    code: providerErrorCodeSchema,
+    message: z.string().min(1),
+    retryable: z.boolean(),
+  }),
+});
+const repairSuccessSchema = z.object({
+  data: z.object({
+    points: z
+      .array(
+        z.object({
+          lat: z.number().min(-90).max(90),
+          lon: z.number().min(-180).max(180),
+          time: z.string().optional(),
+          elevationMeters: z.number().optional(),
+        }),
+      )
+      .min(2),
+    provenance: z.object({
+      kind: z.enum([
+        "recorded-timeline",
+        "actual-track",
+        "filed-plan",
+        "simulated-plan",
+        "direct-line",
+        "ground-route",
+        "transit-route",
+      ]),
+      source: routeSourceSchema,
+      referenceDate: z.string().nullable(),
+      approximate: z.boolean(),
+      explanation: z.string().min(1),
+      originalMode: transportModeSchema.optional(),
+      correctedMode: transportModeSchema.optional(),
+      userOverride: z.boolean().optional(),
+    }),
+    attempts: z.array(
+      z.object({
+        source: routeSourceSchema,
+        status: z.enum(["success", "failed", "skipped"]),
+        code: providerErrorCodeSchema.optional(),
+        message: z.string().min(1),
+        retryable: z.boolean(),
+      }),
+    ),
+  }),
+});
 
 export interface TimelineWorkflowServices {
   dependencies: TimelineProcessingDependencies;
@@ -338,7 +421,7 @@ function cacheKeyInput(
   };
 }
 
-async function requestRepair(
+export async function requestRepair(
   gap: {
     id: string;
     startPoint: { lat: number; lon: number };
@@ -355,14 +438,38 @@ async function requestRepair(
     body: JSON.stringify({ ...gap, mode }),
     signal,
   });
-  const body = (await response.json()) as {
-    data?: RepairRouteResult;
-    error?: { message: string };
-  };
-  if (!response.ok || !body.data) {
-    throw new Error(body.error?.message ?? "所有路線來源皆失敗。");
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw unavailableRepairError(response);
   }
-  return body.data;
+
+  if (!response.ok) {
+    const parsed = repairErrorSchema.safeParse(body);
+    if (parsed.success) {
+      throw new ProviderError({
+        ...parsed.data.error,
+        status: response.status,
+      });
+    }
+    throw unavailableRepairError(response);
+  }
+
+  const parsed = repairSuccessSchema.safeParse(body);
+  if (!parsed.success) {
+    throw unavailableRepairError(response);
+  }
+  return parsed.data.data;
+}
+
+function unavailableRepairError(response: Response): ProviderError {
+  return new ProviderError({
+    code: "provider_unavailable",
+    message: "Provider is unavailable.",
+    retryable: response.ok || response.status >= 500,
+    status: response.status,
+  });
 }
 
 function parserInvalidItems(

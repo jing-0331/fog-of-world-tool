@@ -28,7 +28,25 @@ describe("data sources page", () => {
     ).toHaveAttribute("href", "https://flightplandatabase.com/dev/api");
     expect(
       screen.getByRole("link", { name: "OpenRouteService" }),
-    ).toHaveAttribute("href", "https://openrouteservice.org/dev/");
+    ).toHaveAttribute(
+      "href",
+      "https://giscience.github.io/openrouteservice/frequently-asked-questions.html#when-and-how-does-my-quota-reset",
+    );
+    expect(
+      screen.getByText(/rolling 60 秒最多 40 次/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/rolling 24 小時 2,000 次/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/單一 server process 內排隊 Directions/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/多實例部署需要共享 limiter/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/dashboard.*x-ratelimit-remaining.*x-ratelimit-reset/),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "OpenStreetMap" })).toHaveAttribute(
       "href",
       "https://www.openstreetmap.org/copyright",

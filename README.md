@@ -59,6 +59,12 @@ TDX_CLIENT_SECRET=
 TRANSITOUS_CONTACT_URL=https://github.com/YOUR_ACCOUNT/YOUR_REPOSITORY
 ```
 
+### OpenRouteService Directions 額度
+
+[OpenRouteService 官方 FAQ](https://giscience.github.io/openrouteservice/frequently-asked-questions.html#when-and-how-does-my-quota-reset) 在 2026-07-26 確認的 Standard Directions 限制是 rolling 60 秒最多 40 次、rolling 24 小時預設 2,000 次。這些方案限制並非不可變；目前帳戶的 dashboard、`x-ratelimit-remaining` 與 `x-ratelimit-reset` 回應標頭才是剩餘額度的準據。
+
+本工具只在單一 server process 內排隊 OpenRouteService Directions 呼叫，每次 retry 都會重新取得 limiter slot。多實例部署需要外部共享 limiter 才能跨 process 協調。reverse geocoding 使用另一個端點與額度，不共用 Directions limiter。
+
 畫面會顯示各能力是否可用，而不會回傳密鑰。TDX 憑證可在 TDX 會員中心的「資料服務 → API 金鑰」取得；兩個欄位必須一起設定。為符合 TDX 免付費方案每分鐘最多 5 次請求的限制，同一個 server process 會將所有 MaaS 路線請求排入共用的滾動 60 秒佇列，自動重試也會計入；OAuth token 請求不計入 MaaS 額度。多實例部署須另以共享限流服務協調全域額度。`TRANSITOUS_CONTACT_URL` 不能保留範例值；工具會把應用程式名稱、版本與聯絡網址放在 Transitous 的 `User-Agent`。若要大量路線查詢，請先聯絡 Transitous 營運者。
 
 ## 航班工作流
