@@ -6,7 +6,6 @@ import type {
 } from "@/lib/domain/types";
 import { distanceMeters } from "@/lib/geo/distance";
 import {
-  processTimeline,
   startTimelineProcessing,
   type TimelineProcessingDependencies,
 } from "@/lib/timeline/process-timeline";
@@ -15,6 +14,12 @@ import type {
   TimelineRepairGap,
 } from "@/lib/timeline/build-legs";
 import { ProviderError } from "@/lib/server/provider-error";
+
+function processTimeline(
+  ...args: Parameters<typeof startTimelineProcessing>
+) {
+  return startTimelineProcessing(...args).automaticDone;
+}
 
 describe("processTimeline", () => {
   it("retains recorded points without provider calls", async () => {

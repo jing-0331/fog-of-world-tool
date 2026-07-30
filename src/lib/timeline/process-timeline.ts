@@ -141,18 +141,6 @@ interface TimelineProcessingRuntime {
   hooks?: TimelineProcessingHooks;
 }
 
-export function processTimeline(
-  legs: TimelineLeg[],
-  dependencies: TimelineProcessingDependencies,
-  options: ProcessTimelineOptions = {},
-): Promise<ProcessTimelineResult> {
-  return startTimelineProcessing(
-    legs,
-    dependencies,
-    options,
-  ).automaticDone;
-}
-
 export function startTimelineProcessing(
   legs: TimelineLeg[],
   dependencies: TimelineProcessingDependencies,

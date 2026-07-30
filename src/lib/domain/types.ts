@@ -113,17 +113,6 @@ export interface ConfirmedFlight extends FlightCandidate {
   confirmedAt: string;
 }
 
-export interface TimelineActivity {
-  id: string;
-  mode: TransportMode;
-  startTime: string;
-  endTime: string;
-  startPoint: GeoPoint;
-  endPoint: GeoPoint;
-  points: GeoPoint[];
-  probability?: number;
-}
-
 export type ProviderErrorCode =
   | "no_data"
   | "rate_limited"

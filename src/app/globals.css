@@ -242,45 +242,6 @@ select {
   font-size: 0.9rem;
 }
 
-.badge-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.source-badge {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  align-items: center;
-}
-
-.badge-pill {
-  padding: 0.32rem 0.58rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--foreground);
-  font-size: 0.75rem;
-  font-weight: 750;
-}
-
-.badge-pill[data-tone="source"] {
-  border-color: color-mix(
-    in srgb,
-    var(--teal) 28%,
-    var(--surface-strong)
-  );
-  background: var(--teal-pale);
-  color: var(--teal);
-}
-
-.badge-pill[data-tone="approximate"] {
-  border-color: #ead3a7;
-  background: #fff4d8;
-  color: var(--warning);
-}
-
 .panel {
   padding: 1.25rem;
   border: 1px solid var(--line);
@@ -968,27 +929,6 @@ button:disabled,
   padding-top: 0.25rem;
 }
 
-.badge-row {
-  margin-top: 0.85rem;
-}
-
-.badge-pill {
-  border-radius: 0.55rem;
-  background: var(--surface);
-  font-weight: 720;
-}
-
-.badge-pill[data-tone="source"] {
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-}
-
-.badge-pill[data-tone="approximate"] {
-  border-color: color-mix(in srgb, var(--warning) 34%, var(--line));
-  background: var(--warning-surface);
-}
-
 .flight-route-source-list {
   display: grid;
   gap: 0.7rem;
@@ -1229,10 +1169,6 @@ progress::-moz-progress-bar {
   border-radius: 0.7rem !important;
 }
 
-.bg-white {
-  background-color: var(--surface-strong) !important;
-}
-
 .bg-slate-50 {
   background-color: var(--surface) !important;
 }
@@ -1413,22 +1349,7 @@ progress::-moz-progress-bar {
     border-color: color-mix(in srgb, var(--warning) 42%, var(--line)) !important;
   }
 
-  .text-amber-800,
-  .text-amber-900 {
-    color: var(--warning) !important;
-  }
-
-  .bg-emerald-50 {
-    background-color: var(--success-surface) !important;
-  }
-
-  .border-emerald-200 {
-    border-color: color-mix(in srgb, var(--success) 38%, var(--line)) !important;
-  }
-
-  .text-emerald-700,
-  .text-emerald-800,
-  .text-emerald-900 {
+  .text-emerald-700 {
     color: var(--success) !important;
   }
 
@@ -1436,8 +1357,7 @@ progress::-moz-progress-bar {
     background-color: var(--danger-surface) !important;
   }
 
-  .border-rose-200,
-  .border-rose-300 {
+  .border-rose-200 {
     border-color: color-mix(in srgb, var(--danger) 40%, var(--line)) !important;
   }
 
