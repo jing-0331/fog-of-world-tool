@@ -17,6 +17,79 @@ import type {
 import { coalesceAdjacentTransitLegs } from "@/lib/timeline/coalesce-adjacent-transit-legs";
 
 describe("coalesceAdjacentTransitLegs", () => {
+  it("collapses multiple repair gaps inside one public-transit leg into one endpoint job", () => {
+    const fragmented = transitLeg({
+      id: "fragmented-train",
+      mode: "train",
+      startMinute: 0,
+      endMinute: 30,
+      start: coordinate(10, 10),
+      end: coordinate(13, 13),
+    });
+    const first = fragmented.points[0];
+    const middle = {
+      ...coordinate(11, 11),
+      time: at(10),
+    };
+    const last = fragmented.points.at(-1)!;
+    fragmented.points = [first, middle, last];
+    fragmented.recordedRuns = [[first, middle]];
+    fragmented.gaps = [
+      repairGap("fragmented-first", fragmented.mode, first, middle),
+      repairGap("fragmented-second", fragmented.mode, middle, last),
+    ];
+
+    const result = coalesceAdjacentTransitLegs([fragmented]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      mode: "train",
+      startTime: fragmented.startTime,
+      endTime: fragmented.endTime,
+      points: [first, last],
+      recordedRuns: [],
+      gaps: [
+        expect.objectContaining({
+          mode: "train",
+          startPoint: first,
+          endPoint: last,
+          startTime: fragmented.startTime,
+          endTime: fragmented.endTime,
+        }),
+      ],
+    });
+  });
+
+  it("preserves separated repair gaps inside one public-transit leg", () => {
+    const separated = transitLeg({
+      id: "separated-bus",
+      mode: "bus",
+      startMinute: 0,
+      endMinute: 30,
+      start: coordinate(10, 10),
+      end: coordinate(13, 13),
+    });
+    const first = separated.points[0];
+    const firstEnd = {
+      ...coordinate(11, 11),
+      time: at(10),
+    };
+    const secondStart = {
+      ...coordinate(12, 12),
+      time: at(20),
+    };
+    const last = separated.points.at(-1)!;
+    separated.points = [first, firstEnd, secondStart, last];
+    separated.gaps = [
+      repairGap("separated-first", separated.mode, first, firstEnd),
+      repairGap("separated-second", separated.mode, secondStart, last),
+    ];
+
+    expect(coalesceAdjacentTransitLegs([separated])).toEqual([
+      separated,
+    ]);
+  });
+
   it("coalesces two same-mode public-transit legs without comparing their intermediate endpoints", () => {
     const first = transitLeg({
       id: "train-a-b",
@@ -436,4 +509,23 @@ function at(minute: number, second = 0): string {
   return new Date(
     Date.UTC(2026, 0, 1, 8, minute, second),
   ).toISOString();
+}
+
+function repairGap(
+  id: string,
+  mode: TransportMode,
+  startPoint: GeoPoint,
+  endPoint: GeoPoint,
+): TimelineRepairGap {
+  return {
+    id,
+    mode,
+    startPoint,
+    endPoint,
+    startTime: startPoint.time!,
+    endTime: endPoint.time!,
+    distanceMeters: distanceMeters(startPoint, endPoint),
+    elapsedMilliseconds:
+      Date.parse(endPoint.time!) - Date.parse(startPoint.time!),
+  };
 }

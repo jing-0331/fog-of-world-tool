@@ -12,7 +12,12 @@ export function coalesceAdjacentTransitLegs(
 ): TimelineLeg[] {
   const coalesced: TimelineLeg[] = [];
 
-  for (const leg of legs) {
+  for (const originalLeg of legs) {
+    const leg =
+      modeFamily(originalLeg.mode) === "public-transit" &&
+      hasMultipleContiguousGaps(originalLeg)
+        ? mergeLegs(originalLeg, originalLeg)
+        : originalLeg;
     const current = coalesced.at(-1);
     if (current && canCoalesce(current, leg)) {
       coalesced[coalesced.length - 1] = mergeLegs(current, leg);
@@ -22,6 +27,35 @@ export function coalesceAdjacentTransitLegs(
   }
 
   return coalesced;
+}
+
+function hasMultipleContiguousGaps(leg: TimelineLeg): boolean {
+  return (
+    leg.gaps.length > 1 &&
+    leg.gaps.every(
+      (gap) =>
+        legContainsPoint(leg, gap.startPoint) &&
+        legContainsPoint(leg, gap.endPoint),
+    ) &&
+    leg.gaps.slice(1).every((gap, index) => {
+      const previous = leg.gaps[index];
+      return (
+        gap.startTime === previous.endTime &&
+        distanceMeters(previous.endPoint, gap.startPoint) <= 1e-6
+      );
+    })
+  );
+}
+
+function legContainsPoint(
+  leg: TimelineLeg,
+  candidate: TimelineRepairGap["startPoint"],
+): boolean {
+  return leg.points.some(
+    (point) =>
+      point.time === candidate.time &&
+      distanceMeters(point, candidate) <= 1e-6,
+  );
 }
 
 function canCoalesce(

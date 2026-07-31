@@ -1120,16 +1120,20 @@ describe("processTimeline", () => {
     expect(result.gpx).toBeNull();
   });
 
-  it("densifies every successful output segment to at most 2 km", async () => {
+  it("densifies a successfully queried route to at most 2 km", async () => {
+    const routeGap = gap("densified-provider-route", 0, 60, 0, 0.1);
+    const dependencies = deps();
     const result = await processTimeline(
       [
         leg({
-          recordedRuns: [[point(0, 0), point(0.1, 60)]],
+          points: [routeGap.startPoint, routeGap.endPoint],
+          gaps: [routeGap],
         }),
       ],
-      deps(),
+      dependencies,
     );
 
+    expect(dependencies.repair).toHaveBeenCalledTimes(1);
     for (const segment of result.segments) {
       for (let index = 1; index < segment.points.length; index += 1) {
         expect(

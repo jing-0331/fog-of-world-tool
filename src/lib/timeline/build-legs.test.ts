@@ -46,7 +46,7 @@ describe("buildTimelineLegs", () => {
     ]);
   });
 
-  it("keeps pairs at or below 2 km recorded and makes longer pairs repair gaps", () => {
+  it("creates one endpoint repair gap without pre-query 2 km splitting", () => {
     const path = pathSegment("gapped", [
       { lat: 0, lon: 0, time: at(0) },
       { lat: 0.005, lon: 0, time: at(5) },
@@ -58,20 +58,27 @@ describe("buildTimelineLegs", () => {
 
     expect(leg.gaps).toHaveLength(1);
     expect(leg.gaps[0]).toMatchObject({
-      startPoint: { lat: 0.005, lon: 0 },
-      endPoint: { lat: 1, lon: 0 },
+      startPoint: { lat: 0, lon: 0, time: at(0) },
+      endPoint: { lat: 1.005, lon: 0, time: at(15) },
+      startTime: at(0),
+      endTime: at(15),
       mode: "unknown",
     });
-    expect(leg.recordedRuns).toEqual([
-      [
+    expect(leg.recordedRuns).toEqual([]);
+  });
+
+  it("drops movement legs whose endpoint distance is 10 meters or less", () => {
+    const tenMetersNorth =
+      (10 / 6_371_008.8) * (180 / Math.PI);
+
+    const legs = buildTimelineLegs([
+      pathSegment("stationary-noise", [
         { lat: 0, lon: 0, time: at(0) },
-        { lat: 0.005, lon: 0, time: at(5) },
-      ],
-      [
-        { lat: 1, lon: 0, time: at(10) },
-        { lat: 1.005, lon: 0, time: at(15) },
-      ],
+        { lat: tenMetersNorth, lon: 0, time: at(5) },
+      ]),
     ]);
+
+    expect(legs).toEqual([]);
   });
 
   it("splits explicit flights without creating a direct recorded line", () => {
@@ -101,7 +108,8 @@ describe("buildTimelineLegs", () => {
 
     expect(leg.unmatched).toBe(true);
     expect(leg.mode).toBe("unknown");
-    expect(leg.recordedRuns).toHaveLength(1);
+    expect(leg.recordedRuns).toEqual([]);
+    expect(leg.gaps).toHaveLength(1);
   });
 
   it("builds deterministic IDs from time and rounded endpoints", () => {

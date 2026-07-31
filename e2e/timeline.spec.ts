@@ -15,6 +15,29 @@ const reviewFixture = join(
 test("uploads a synthetic Timeline and exports source-labelled GPX", async ({
   page,
 }) => {
+  await page.route("**/api/routes/repair", async (route) => {
+    const body = route.request().postDataJSON() as {
+      mode: string;
+      startPoint: { lat: number; lon: number };
+      endPoint: { lat: number; lon: number };
+      startTime: string;
+      endTime: string;
+    };
+    const transitModes = new Set([
+      "train",
+      "subway",
+      "bus",
+      "tram",
+      "ferry",
+    ]);
+
+    await fulfillSuccess(
+      route,
+      body,
+      transitModes.has(body.mode) ? "transitous" : "openrouteservice",
+    );
+  });
+
   await page.goto("/timeline");
   await page
     .getByLabel("選擇 Google 時間軸 JSON")
@@ -35,8 +58,10 @@ test("uploads a synthetic Timeline and exports source-labelled GPX", async ({
   const path = await download.path();
   expect(path).not.toBeNull();
   const gpx = await readFile(path!, "utf8");
-  expect(gpx).toContain("<fowt:kind>recorded-timeline</fowt:kind>");
-  expect(gpx).toContain("<fowt:source>google-timeline</fowt:source>");
+  expect(gpx).toContain("<fowt:kind>ground-route</fowt:kind>");
+  expect(gpx).toContain("<fowt:source>openrouteservice</fowt:source>");
+  expect(gpx).toContain("<fowt:kind>transit-route</fowt:kind>");
+  expect(gpx).toContain("<fowt:source>transitous</fowt:source>");
   expect(gpx).toContain(
     "<fowt:skippedFlightCount>1</fowt:skippedFlightCount>",
   );

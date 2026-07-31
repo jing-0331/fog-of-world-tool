@@ -6,7 +6,7 @@ import type {
   NormalizedTimelinePathPoint,
 } from "@/lib/timeline/schema";
 
-const MAX_RECORDED_DISTANCE_METERS = 2_000;
+const MIN_MOVEMENT_DISTANCE_METERS = 10;
 
 export interface TimelineRepairGap {
   id: string;
@@ -117,11 +117,17 @@ export function buildTimelineLegs(
     );
   }
 
-  return legs.sort(
-    (left, right) =>
-      left.startTime.localeCompare(right.startTime) ||
-      left.id.localeCompare(right.id),
-  );
+  return legs
+    .filter(
+      (leg) =>
+        distanceMeters(leg.points[0], leg.points.at(-1)!) >
+        MIN_MOVEMENT_DISTANCE_METERS,
+    )
+    .sort(
+      (left, right) =>
+        left.startTime.localeCompare(right.startTime) ||
+        left.id.localeCompare(right.id),
+    );
 }
 
 function createLeg(input: {
@@ -159,43 +165,21 @@ function createLeg(input: {
     };
   }
 
-  const recordedRuns: GeoPoint[][] = [];
-  const gaps: TimelineRepairGap[] = [];
-  let currentRun = [points[0]];
-
-  for (let index = 1; index < points.length; index += 1) {
-    const startPoint = points[index - 1];
-    const endPoint = points[index];
-    const gapDistance = distanceMeters(startPoint, endPoint);
-
-    if (gapDistance <= MAX_RECORDED_DISTANCE_METERS) {
-      currentRun.push(endPoint);
-      continue;
-    }
-
-    if (currentRun.length >= 2) {
-      recordedRuns.push(currentRun);
-    }
-    gaps.push({
-      id: `${id}:gap:${index - 1}`,
-      mode: input.mode,
-      startPoint,
-      endPoint,
-      startTime: startPoint.time ?? input.startTime,
-      endTime: endPoint.time ?? input.endTime,
-      distanceMeters: gapDistance,
-      elapsedMilliseconds: Math.max(
-        0,
-        Date.parse(endPoint.time ?? input.endTime) -
-          Date.parse(startPoint.time ?? input.startTime),
-      ),
-    });
-    currentRun = [endPoint];
-  }
-
-  if (currentRun.length >= 2) {
-    recordedRuns.push(currentRun);
-  }
+  const startPoint = points[0];
+  const endPoint = points.at(-1)!;
+  const gap: TimelineRepairGap = {
+    id: `${id}:gap`,
+    mode: input.mode,
+    startPoint,
+    endPoint,
+    startTime: input.startTime,
+    endTime: input.endTime,
+    distanceMeters: distanceMeters(startPoint, endPoint),
+    elapsedMilliseconds: Math.max(
+      0,
+      Date.parse(input.endTime) - Date.parse(input.startTime),
+    ),
+  };
 
   return {
     id,
@@ -207,8 +191,8 @@ function createLeg(input: {
       ? {}
       : { probability: input.probability }),
     points,
-    recordedRuns,
-    gaps,
+    recordedRuns: [],
+    gaps: [gap],
     classification: "route",
     unmatched: input.unmatched,
   };
